@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"github.com/fedoroko/gophermart/internal/withdrawals"
 	"strings"
 	"time"
 
@@ -19,22 +20,24 @@ type Repo interface {
 	UserCreate(context.Context, *users.TempUser) (*users.Session, error)
 	UserUpdate(context.Context, *users.User) error
 	UserOrders(context.Context, *users.User) ([]*orders.Order, error)
-	UserWithdrawals(context.Context, *users.User) ([]*orders.Order, error)
+	UserWithdrawals(context.Context, *users.User) ([]*withdrawals.Withdrawal, error)
 
 	SessionCheck(context.Context, string) (*users.Session, error)
 	SessionKill(context.Context, *users.Session) error
 
-	OrderCreate(context.Context, *orders.TempOrder) (*orders.Order, error)
+	OrderCreate(context.Context, *orders.Order) error
+	OrdersUpdate(context.Context, []*orders.Order) error
+	WithdrawalCreate(context.Context, *withdrawals.Withdrawal) error
 
 	Close() error
 }
 
 type stmtQueries struct {
-	userUpdate      *sql.Stmt
-	userOrders      *sql.Stmt
-	userWithdrawals *sql.Stmt
-	sessionCheck    *sql.Stmt
-	orderCreate     *sql.Stmt
+	userUpdate       *sql.Stmt
+	userOrders       *sql.Stmt
+	userWithdrawals  *sql.Stmt
+	sessionCheck     *sql.Stmt
+	withdrawalCreate *sql.Stmt
 }
 
 type postgres struct {
@@ -148,24 +151,22 @@ func (p *postgres) UserOrders(ctx context.Context, user *users.User) ([]*orders.
 	defer rows.Close()
 
 	for rows.Next() {
-		o := orders.TempOrder{
-			User:         user,
-			IsWithdrawal: false,
+		o := orders.Order{
+			User: user,
 		}
 
-		err = rows.Scan(&o.Number, &o.Status, &o.Sum, &o.UploadedAt)
+		err = rows.Scan(&o.Number, &o.Status, &o.Accrual, &o.UploadedAt)
 		if err != nil {
 			return ors, nil
 		}
 
-		ors = append(ors, o.Commit())
+		ors = append(ors, &o)
 	}
 
 	return ors, nil
 }
 
-func (p *postgres) UserWithdrawals(ctx context.Context, user *users.User) ([]*orders.Order, error) {
-	var ors []*orders.Order
+func (p *postgres) UserWithdrawals(ctx context.Context, user *users.User) ([]*withdrawals.Withdrawal, error) {
 	rows, err := p.stmt.userWithdrawals.QueryContext(ctx, user.Id())
 	if err != nil {
 		if strings.Contains(err.Error(), "no rows") {
@@ -176,21 +177,21 @@ func (p *postgres) UserWithdrawals(ctx context.Context, user *users.User) ([]*or
 
 	defer rows.Close()
 
+	var wrs []*withdrawals.Withdrawal
 	for rows.Next() {
-		o := orders.TempOrder{
-			User:         user,
-			IsWithdrawal: true,
+		w := withdrawals.Withdrawal{
+			User: user,
 		}
 
-		err = rows.Scan(&o.Number, &o.Sum, &o.UploadedAt)
+		err = rows.Scan(&w.Order, &w.Sum, &w.UploadedAt)
 		if err != nil {
-			return ors, nil
+			return nil, err
 		}
 
-		ors = append(ors, o.Commit())
+		wrs = append(wrs, &w)
 	}
 
-	return ors, nil
+	return wrs, nil
 }
 
 func (p *postgres) SessionCreate(ctx context.Context, user *users.User) (*users.Session, error) {
@@ -217,10 +218,10 @@ func (p *postgres) SessionKill(ctx context.Context, s *users.Session) error {
 	return nil
 }
 
-func (p *postgres) OrderCreate(ctx context.Context, order *orders.TempOrder) (*orders.Order, error) {
+func (p *postgres) OrderCreate(ctx context.Context, order *orders.Order) error {
 	tx, err := p.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var existId *int64
@@ -231,32 +232,70 @@ func (p *postgres) OrderCreate(ctx context.Context, order *orders.TempOrder) (*o
 			if rollErr := tx.Rollback(); rollErr != nil {
 				p.logger.Error().Stack().Err(rollErr).Send()
 			}
-			return nil, err
+			return err
 		}
-
 	}
 
 	if existId != nil {
 		if *existId != order.User.Id() {
-			return nil, orders.ThrowBelongToAnotherErr()
+			return orders.ThrowBelongToAnotherErr()
 		}
 
-		return nil, orders.ThrowAlreadyExistsErr()
+		return orders.ThrowAlreadyExistsErr()
 	}
 
-	_, err = tx.ExecContext(ctx, orderCreateQuery, order.Number, order.User.Id(), order.IsWithdrawal, order.Status, order.Sum)
+	_, err = tx.ExecContext(
+		ctx, orderCreateQuery, order.Number, order.User.Id(), order.Status, order.Accrual, order.UploadedAt,
+	)
 	if err != nil {
 		if rollErr := tx.Rollback(); rollErr != nil {
 			p.logger.Error().Stack().Err(rollErr).Send()
 		}
-		return nil, err
+		return err
 	}
 
 	if err = tx.Commit(); err != nil {
-		return nil, err
+		return err
 	}
 
-	return order.Commit(), nil
+	return nil
+}
+
+func (p *postgres) OrdersUpdate(ctx context.Context, ors []*orders.Order) error {
+	tx, err := p.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare(ordersUpdateQuery)
+	if err != nil {
+		return err
+	}
+	p.logger.Debug().Msg("orders_update transaction prepared")
+
+	for _, o := range ors {
+		if _, err = stmt.ExecContext(ctx, o.Status, o.Accrual); err != nil {
+			if rollErr := tx.Rollback(); rollErr != nil {
+				p.logger.Error().Stack().Err(rollErr).Send()
+			}
+			return err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	p.logger.Debug().Msg("orders_update committed")
+	return nil
+}
+
+func (p *postgres) WithdrawalCreate(ctx context.Context, w *withdrawals.Withdrawal) error {
+	_, err := p.stmt.withdrawalCreate.ExecContext(ctx, w.Order, w.User.Id(), w.Sum, w.UploadedAt)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (p *postgres) Close() error {
@@ -285,21 +324,23 @@ func prepare(db *sql.DB) *stmtQueries {
 		panic(err)
 	}
 
-	orderCreate, err := db.Prepare(orderCreateQuery)
+	withdrawalCreate, err := db.Prepare(withdrawalCreateQuery)
 	if err != nil {
 		panic(err)
 	}
 
 	return &stmtQueries{
-		userUpdate:      userUpdate,
-		userOrders:      userOrders,
-		userWithdrawals: userWithdrawals,
-		sessionCheck:    sessionCheck,
-		orderCreate:     orderCreate,
+		userUpdate:       userUpdate,
+		userOrders:       userOrders,
+		userWithdrawals:  userWithdrawals,
+		sessionCheck:     sessionCheck,
+		withdrawalCreate: withdrawalCreate,
 	}
 }
 
 func Postgres(cfg *config.ServerConfig, logger *config.Logger) (Repo, error) {
+	subLogger := logger.With().Str("Component", "POSTGRES-DB").Logger()
+	logger = config.NewLogger(&subLogger)
 	db, err := sql.Open("pgx", cfg.Database)
 	if err != nil {
 		panic(err)
@@ -312,6 +353,7 @@ func Postgres(cfg *config.ServerConfig, logger *config.Logger) (Repo, error) {
 
 	_, err = db.Exec(schema)
 	if err != nil {
+		logger.Debug().Err(err).Send()
 		if !strings.Contains(err.Error(), "already exists") {
 			panic(err)
 		}
@@ -319,11 +361,9 @@ func Postgres(cfg *config.ServerConfig, logger *config.Logger) (Repo, error) {
 
 	stmt := prepare(db)
 
-	subLogger := logger.With().Str("Component", "POSTGRES-DB").Logger()
-
 	return &postgres{
 		DB:     db,
-		logger: config.NewLogger(&subLogger),
+		logger: logger,
 		cfg:    cfg,
 		stmt:   stmt,
 	}, nil

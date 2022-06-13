@@ -1,67 +1,42 @@
 package orders
 
 import (
-	"github.com/fedoroko/gophermart/internal/users"
+	"encoding/json"
 	"io"
 	"io/ioutil"
 	"strconv"
 	"time"
+
+	"github.com/fedoroko/gophermart/internal/users"
 )
 
 type Order struct {
-	number       int64
-	user         *users.User
-	isWithdrawal bool
-	status       int
-	sum          *float64
-	uploadedAt   time.Time
-}
-
-func (o *Order) User() *users.User {
-	return o.user
-}
-
-func (o *Order) Number() int64 {
-	return o.number
-}
-
-func (o *Order) UploadedAt() time.Time {
-	return o.uploadedAt
-}
-
-func (o *Order) Status() int {
-	return o.status
-}
-
-func (o *Order) Sum() *float64 {
-	return o.sum
+	Number     int64       `json:"-"`
+	User       *users.User `json:"-"`
+	Status     int         `json:"-"`
+	Accrual    *float64    `json:"accrual,omitempty"`
+	UploadedAt time.Time   `json:"-"`
 }
 
 func (o *Order) Process() error {
 	return nil
 }
 
-type TempOrder struct {
-	Number       int64
-	User         *users.User
-	IsWithdrawal bool
-	Status       int
-	Sum          *float64
-	UploadedAt   time.Time
+func (o *Order) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		Number     int64    `json:"number"`
+		Status     string   `json:"status"`
+		Accrual    *float64 `json:"accrual,omitempty"`
+		UploadedAt string   `json:"uploaded_at"`
+	}{
+		Number:     o.Number,
+		Status:     statusDecode(o.Status),
+		Accrual:    o.Accrual,
+		UploadedAt: o.UploadedAt.Format(time.RFC3339),
+	})
 }
 
-func (t *TempOrder) Commit() *Order {
-	return &Order{
-		number:       t.Number,
-		user:         t.User,
-		isWithdrawal: t.IsWithdrawal,
-		status:       t.Status,
-		sum:          t.Sum,
-		uploadedAt:   t.UploadedAt,
-	}
-}
-
-func FromPlain(user *users.User, body io.Reader, isWithdrawal bool) (*TempOrder, error) {
+func FromPlain(user *users.User, body io.Reader) (*Order, error) {
 	b, err := ioutil.ReadAll(body)
 	if err != nil {
 		return nil, err
@@ -72,22 +47,25 @@ func FromPlain(user *users.User, body io.Reader, isWithdrawal bool) (*TempOrder,
 		return nil, ThrowInvalidRequestErr()
 	}
 
-	if err = validate(number); err != nil {
-		return nil, err
-	}
+	//if validation.IsValid(number) == false {
+	//	return nil, ThrowInvalidNumberErr()
+	//}
 
-	return &TempOrder{
-		Number:       number,
-		User:         user,
-		IsWithdrawal: isWithdrawal,
-		UploadedAt:   time.Now(),
-		Status:       1,
+	return &Order{
+		Number:     number,
+		User:       user,
+		UploadedAt: time.Now(),
+		Status:     1,
 	}, nil
 }
 
-func validate(number int64) error {
-	if false {
-		return ThrowInvalidNumberErr()
+func statusDecode(status int) string {
+	table := map[int]string{
+		1: "NEW",
+		2: "PROCESSING",
+		3: "PROCESSED",
+		4: "INVALID",
 	}
-	return nil
+
+	return table[status]
 }

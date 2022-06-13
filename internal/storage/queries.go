@@ -2,9 +2,10 @@ package storage
 
 const (
 	schema = `	
--- 				DROP TABLE users;
--- 				DROP TABLE sessions;
--- 				DROP TABLE orders;
+				DROP TABLE users;
+				DROP TABLE sessions;
+				DROP TABLE orders;
+				DROP TABLE withdrawals;
 
 
 				CREATE TABLE users (
@@ -24,8 +25,13 @@ const (
 				CREATE TABLE orders (
 				    number BIGINT UNIQUE NOT NULL,
 				    user_id INTEGER NOT NULL,
-				    withdrawal BOOLEAN default FALSE,
 				    status int NOT NULL default 1,
+				    accrual REAL,
+				    uploaded_at TIMESTAMP default current_timestamp
+				);
+				CREATE TABLE withdrawals (
+				    "order" BIGINT UNIQUE NOT NULL,
+				    user_id INTEGER NOT NULL,
 				    sum REAL,
 				    uploaded_at TIMESTAMP default current_timestamp
 				);
@@ -42,12 +48,12 @@ const (
 	userUpdateQuery = `UPDATE users SET balance = $1, withdraw = $2
 					   WHERE login = $3;`
 
-	userOrdersQuery = `		SELECT number, status, sum, uploaded_at FROM orders 
-							WHERE user_id = $1 and withdrawal = 0
+	userOrdersQuery = `		SELECT number, status, accrual, uploaded_at FROM orders 
+							WHERE user_id = $1
 							ORDER BY uploaded_at`
 
-	userWithdrawalsQuery = `SELECT * FROM orders 
-							WHERE user_id = $1 and withdrawal = 1
+	userWithdrawalsQuery = `SELECT "order", sum, uploaded_at FROM withdrawals 
+							WHERE user_id = $1
 							ORDER BY uploaded_at`
 
 	sessionCreateQuery = `	INSERT INTO sessions (token, user_id, expire_at)
@@ -66,7 +72,13 @@ const (
 						WHERE number = $1
 						;`
 
-	orderCreateQuery = `	INSERT INTO orders (number, user_id, withdrawal, status, sum, uploaded_at)
-							VALUES ($1, $2, $3, $4, $5, current_timestamp)
+	orderCreateQuery = `	INSERT INTO orders (number, user_id, status, accrual, uploaded_at)
+							VALUES ($1, $2, $3, $4, $5)
+			;`
+
+	ordersUpdateQuery = `	UPDATE orders SET status = $1, accrual = $2;`
+
+	withdrawalCreateQuery = `	INSERT INTO withdrawals ("order", user_id, sum, uploaded_at)
+								VALUES ($1, $2, $3, $4)
 			;`
 )

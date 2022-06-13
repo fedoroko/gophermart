@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/fedoroko/gophermart/internal/accrual"
+	"github.com/fedoroko/gophermart/internal/withdrawals"
 	"net/http"
 	"time"
 
@@ -21,8 +23,8 @@ type handler struct {
 	timeout time.Duration
 }
 
-func Handler(r storage.Repo, logger *config.Logger, timeout time.Duration) *handler {
-	ctrl := controllers.Ctrl(r, logger)
+func Handler(r storage.Repo, q accrual.Queue, logger *config.Logger, timeout time.Duration) *handler {
+	ctrl := controllers.Ctrl(r, q, logger)
 	subLogger := logger.With().Str("Component", "Handler").Logger()
 	return &handler{
 		ctrl:    ctrl,
@@ -122,7 +124,25 @@ func (h *handler) OrderFunc(c *gin.Context) {
 }
 
 func (h *handler) OrdersFunc(c *gin.Context) {
+	s, ok := h.GetSessionHelper(c)
+	if !ok {
+		return
+	}
 
+	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
+	defer cancel()
+	data, err := h.ctrl.Orders(ctx, s.User())
+	if err != nil {
+		switch {
+		case errors.As(err, &orders.NoItemsError):
+			c.AbortWithStatus(http.StatusNoContent)
+		default:
+			h.logger.Error().Stack().Err(err).Send()
+			c.AbortWithStatus(http.StatusInternalServerError)
+		}
+	}
+
+	c.JSON(http.StatusOK, data)
 }
 
 func (h *handler) BalanceFunc(c *gin.Context) {
@@ -130,11 +150,52 @@ func (h *handler) BalanceFunc(c *gin.Context) {
 }
 
 func (h *handler) WithdrawFunc(c *gin.Context) {
+	if ok := h.ValidateContentType(c, "text/plain"); !ok {
+		return
+	}
 
+	s, ok := h.GetSessionHelper(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
+	defer cancel()
+
+	if err := h.ctrl.Withdraw(ctx, s.User(), c.Request.Body); err != nil {
+		switch {
+		case errors.As(err, &withdrawals.InvalidOrderError):
+			c.AbortWithStatusJSON(http.StatusUnprocessableEntity, err.Error())
+		default:
+			h.logger.Error().Stack().Err(err).Send()
+			c.AbortWithStatus(http.StatusInternalServerError)
+		}
+		return
+	}
+
+	c.Status(http.StatusAccepted)
 }
 
 func (h *handler) WithdrawalsFunc(c *gin.Context) {
+	s, ok := h.GetSessionHelper(c)
+	if !ok {
+		return
+	}
 
+	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
+	defer cancel()
+	data, err := h.ctrl.Withdrawals(ctx, s.User())
+	if err != nil {
+		switch {
+		case errors.As(err, &orders.NoItemsError):
+			c.AbortWithStatus(http.StatusNoContent)
+		default:
+			h.logger.Error().Stack().Err(err).Send()
+			c.AbortWithStatus(http.StatusInternalServerError)
+		}
+	}
+
+	c.JSON(http.StatusOK, data)
 }
 
 func (h *handler) Ping(c *gin.Context) {

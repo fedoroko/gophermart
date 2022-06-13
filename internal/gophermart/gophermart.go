@@ -1,6 +1,7 @@
 package gophermart
 
 import (
+	"github.com/fedoroko/gophermart/internal/accrual"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,7 +23,15 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	}
 	defer db.Close()
 
-	r := router(db, logger)
+	q := accrual.NewQueue(cfg, db, logger)
+	defer q.Close()
+	go func() {
+		if err = q.Listen(); err != nil {
+			logger.Error().Stack().Err(err).Send()
+		}
+	}()
+
+	r := router(db, q, logger)
 	server := &http.Server{
 		Addr:    cfg.Address,
 		Handler: r,
@@ -45,14 +54,14 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	<-sig
 }
 
-func router(db storage.Repo, logger *config.Logger) *gin.Engine {
+func router(db storage.Repo, q accrual.Queue, logger *config.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middlewares.InstanceID(1))
 	r.Use(middlewares.RateLimit())
 
-	h := handlers.Handler(db, logger, time.Second*30)
+	h := handlers.Handler(db, q, logger, time.Second*30)
 	r.GET("/ping", h.Ping)
 	auth := middlewares.AuthRequired(db, logger)
 
