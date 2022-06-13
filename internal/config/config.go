@@ -50,6 +50,7 @@ func NewServerConfig() *ServerConfig {
 		Accrual:      "127.0.0.1:8080",
 		Database:     "postgresql://fedoroko@localhost/gophermart",
 		WorkersCount: 2,
+		Debug:        true,
 	}
 }
 

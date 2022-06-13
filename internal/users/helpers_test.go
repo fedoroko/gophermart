@@ -150,7 +150,7 @@ func TestTempUser_Commit(t *testing.T) {
 		Withdrawn *float64
 		LastLogin *time.Time
 	}
-	var blankId int64 = 1
+	var blankID int64 = 1
 	tests := []struct {
 		name   string
 		fields fields
@@ -159,7 +159,7 @@ func TestTempUser_Commit(t *testing.T) {
 		{
 			name: "positive",
 			fields: fields{
-				ID:        &blankId,
+				ID:        &blankID,
 				Login:     "gopher",
 				Password:  "qwerty",
 				Balance:   nil,

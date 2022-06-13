@@ -190,6 +190,10 @@ func (p *postgres) UserWithdrawals(ctx context.Context, user *users.User) ([]*wi
 		wrs = append(wrs, &w)
 	}
 
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
 	if len(wrs) == 0 {
 		return nil, withdrawals.ThrowNoRecordsErr()
 	}
