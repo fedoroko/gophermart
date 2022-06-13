@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-func AuthRequired(db storage.Repo, logger *config.Logger) gin.HandlerFunc {
+func AuthBasic(db storage.Repo, logger *config.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("Authorization")
 		if len(token) == 0 {
@@ -16,6 +16,26 @@ func AuthRequired(db storage.Repo, logger *config.Logger) gin.HandlerFunc {
 		}
 
 		s, err := db.SessionCheck(c.Request.Context(), token)
+		if err != nil {
+			logger.Error().Err(err).Send()
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		c.Set("session", s)
+		c.Next()
+	}
+}
+
+func AuthWithBalance(db storage.Repo, logger *config.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.GetHeader("Authorization")
+		if len(token) == 0 {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		s, err := db.SessionBalanceCheck(c.Request.Context(), token)
 		if err != nil {
 			logger.Error().Err(err).Send()
 			c.AbortWithStatus(http.StatusUnauthorized)

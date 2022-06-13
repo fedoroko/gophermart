@@ -18,11 +18,11 @@ import (
 type Repo interface {
 	UserExists(context.Context, *users.TempUser) (*users.Session, error)
 	UserCreate(context.Context, *users.TempUser) (*users.Session, error)
-	UserUpdate(context.Context, *users.User) error
 	UserOrders(context.Context, *users.User) ([]*orders.Order, error)
 	UserWithdrawals(context.Context, *users.User) ([]*withdrawals.Withdrawal, error)
 
 	SessionCheck(context.Context, string) (*users.Session, error)
+	SessionBalanceCheck(context.Context, string) (*users.Session, error)
 	SessionKill(context.Context, *users.Session) error
 
 	OrderCreate(context.Context, *orders.Order) error
@@ -33,7 +33,6 @@ type Repo interface {
 }
 
 type stmtQueries struct {
-	userUpdate       *sql.Stmt
 	userOrders       *sql.Stmt
 	userWithdrawals  *sql.Stmt
 	sessionCheck     *sql.Stmt
@@ -55,7 +54,7 @@ func (p *postgres) UserExists(ctx context.Context, user *users.TempUser) (*users
 
 	var u users.TempUser
 	err = tx.QueryRowContext(ctx, userExistsQuery, user.Login).
-		Scan(&u.ID, &u.Login, &u.Password, &u.Balance, &u.Withdrawn, &u.LastLogin)
+		Scan(&u.ID, &u.Login, &u.Password, &u.LastLogin)
 	if err != nil {
 		if strings.Contains(err.Error(), "no rows") {
 			err = users.ThrowWrongPairErr()
@@ -103,7 +102,7 @@ func (p *postgres) UserCreate(ctx context.Context, user *users.TempUser) (*users
 	var u users.TempUser
 	bcrypt, _ := user.HashPassword()
 	err = tx.QueryRowContext(ctx, userCreateQuery, user.Login, string(*bcrypt)).
-		Scan(&u.ID, &u.Login, &u.Password, &u.Balance, &u.Withdrawn, &u.LastLogin)
+		Scan(&u.ID, &u.Login, &u.Password, &u.LastLogin)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			err = users.ThrowAlreadyExistsErr()
@@ -132,10 +131,6 @@ func (p *postgres) UserCreate(ctx context.Context, user *users.TempUser) (*users
 	s.User = u.Commit()
 
 	return s.Commit(), nil
-}
-
-func (p *postgres) UserUpdate(ctx context.Context, user *users.User) error {
-	return nil
 }
 
 func (p *postgres) UserOrders(ctx context.Context, user *users.User) ([]*orders.Order, error) {
@@ -191,6 +186,9 @@ func (p *postgres) UserWithdrawals(ctx context.Context, user *users.User) ([]*wi
 		wrs = append(wrs, &w)
 	}
 
+	if len(wrs) == 0 {
+		return nil, withdrawals.ThrowNoRecordsErr()
+	}
 	return wrs, nil
 }
 
@@ -205,11 +203,63 @@ func (p *postgres) SessionCheck(ctx context.Context, token string) (*users.Sessi
 		Token: token,
 	}
 	err := p.stmt.sessionCheck.QueryRowContext(ctx, token).
-		Scan(&u.ID, &u.Login, &u.Balance, &u.Withdrawn, &u.LastLogin, &s.Expire)
+		Scan(&u.ID, &u.Login, &u.LastLogin, &s.Expire)
 	if err != nil {
 		return nil, err
 	}
 
+	s.User = u.Commit()
+	return s.Commit(), nil
+}
+
+func (p *postgres) SessionBalanceCheck(ctx context.Context, token string) (*users.Session, error) {
+	tx, err := p.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var zeroValue float64 = 0
+	var u users.TempUser
+	s := users.TempSession{
+		Token: token,
+	}
+	err = tx.QueryRowContext(ctx, sessionCheckQuery, token).
+		Scan(&u.ID, &u.Login, &u.LastLogin, &s.Expire)
+	if err != nil {
+		if rollErr := tx.Rollback(); rollErr != nil {
+			p.logger.Error().Stack().Err(rollErr).Send()
+		}
+		return nil, err
+	}
+
+	err = tx.QueryRowContext(ctx, ordersAmountQuery, u.ID).
+		Scan(&u.Balance)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") == false {
+			if rollErr := tx.Rollback(); rollErr != nil {
+				p.logger.Error().Stack().Err(rollErr).Send()
+			}
+			return nil, err
+		}
+		u.Balance = &zeroValue
+	}
+
+	err = tx.QueryRowContext(ctx, withdrawalsAmountQuery, u.ID).
+		Scan(&u.Withdrawn)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") == false {
+			if rollErr := tx.Rollback(); rollErr != nil {
+				p.logger.Error().Stack().Err(rollErr).Send()
+			}
+			return nil, err
+		}
+		u.Withdrawn = &zeroValue
+	}
+
+	if u.Balance != nil && u.Withdrawn != nil {
+		diff := *u.Balance - *u.Withdrawn
+		u.Balance = &diff
+	}
 	s.User = u.Commit()
 	return s.Commit(), nil
 }
@@ -292,6 +342,9 @@ func (p *postgres) OrdersUpdate(ctx context.Context, ors []*orders.Order) error 
 func (p *postgres) WithdrawalCreate(ctx context.Context, w *withdrawals.Withdrawal) error {
 	_, err := p.stmt.withdrawalCreate.ExecContext(ctx, w.Order, w.User.Id(), w.Sum, w.UploadedAt)
 	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			err = withdrawals.ThrowInvalidNumberErr()
+		}
 		return err
 	}
 
@@ -304,11 +357,6 @@ func (p *postgres) Close() error {
 }
 
 func prepare(db *sql.DB) *stmtQueries {
-	userUpdate, err := db.Prepare(userUpdateQuery)
-	if err != nil {
-		panic(err)
-	}
-
 	userOrders, err := db.Prepare(userOrdersQuery)
 	if err != nil {
 		panic(err)
@@ -330,7 +378,6 @@ func prepare(db *sql.DB) *stmtQueries {
 	}
 
 	return &stmtQueries{
-		userUpdate:       userUpdate,
 		userOrders:       userOrders,
 		userWithdrawals:  userWithdrawals,
 		sessionCheck:     sessionCheck,

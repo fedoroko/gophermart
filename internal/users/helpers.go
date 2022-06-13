@@ -94,11 +94,17 @@ func (t *TempUser) GenerateToken() string {
 }
 
 func (t TempUser) Commit() *User {
+	var id int64
+	if t.ID == nil {
+		id = 0
+	} else {
+		id = *t.ID
+	}
 	return &User{
-		id:        *t.ID,
+		id:        id,
 		login:     t.Login,
-		balance:   t.Balance,
-		withdrawn: t.Withdrawn,
+		Balance:   t.Balance,
+		Withdrawn: t.Withdrawn,
 		lastLogin: t.LastLogin,
 	}
 }

@@ -12,8 +12,6 @@ const (
 					id serial PRIMARY KEY,
 					login VARCHAR (50) UNIQUE NOT NULL,
 					password VARCHAR (60) NOT NULL,
-					balance REAL,
-					withdraw REAL,
 					created_at TIMESTAMP default current_timestamp,
 					last_login_at TIMESTAMP default current_timestamp
 				);
@@ -39,14 +37,11 @@ const (
 
 	userExistsQuery = `UPDATE users SET last_login_at = current_timestamp
 					   WHERE login = $1
-					   RETURNING id, login, password, balance, withdraw, last_login_at;`
+					   RETURNING id, login, password, last_login_at;`
 
 	userCreateQuery = `INSERT INTO users (login, password)
 					   VALUES($1, $2)
-					   RETURNING id, login, password, balance, withdraw, last_login_at;`
-
-	userUpdateQuery = `UPDATE users SET balance = $1, withdraw = $2
-					   WHERE login = $3;`
+					   RETURNING id, login, password, last_login_at;`
 
 	userOrdersQuery = `		SELECT number, status, accrual, uploaded_at FROM orders 
 							WHERE user_id = $1
@@ -62,9 +57,17 @@ const (
  						  	SET token = $1, expire_at = current_timestamp + '30 minutes'
 							RETURNING token, expire_at;`
 
-	sessionCheckQuery = `	SELECT id, login, balance, withdraw, last_login_at, expire_at FROM sessions 
+	sessionCheckQuery = `	SELECT id, login, last_login_at, expire_at FROM sessions 
 	    					LEFT JOIN users u on u.id = sessions.user_id 
 							WHERE token = $1 and expire_at > current_timestamp;`
+
+	ordersAmountQuery = `	SELECT sum(accrual) FROM orders 
+							WHERE user_id = $1
+							GROUP BY user_id`
+
+	withdrawalsAmountQuery = `	SELECT sum(sum) FROM withdrawals 
+								WHERE user_id = $1
+								GROUP BY user_id`
 
 	sessionKillQuery = `DELETE FROM sessions WHERE token = $1;`
 

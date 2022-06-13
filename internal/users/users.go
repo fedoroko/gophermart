@@ -8,8 +8,8 @@ import (
 type User struct {
 	id        int64
 	login     string
-	balance   *float64
-	withdrawn *float64
+	Balance   *float64 `json:"current,omitempty"`
+	Withdrawn *float64 `json:"withdrawn,omitempty"`
 	lastLogin *time.Time
 }
 
@@ -21,10 +21,6 @@ func (u *User) Login() string {
 	return u.login
 }
 
-func (u *User) Balance() *float64 {
-	return u.balance
-}
-
-func (u *User) Withdrawn() *float64 {
-	return u.withdrawn
+func (u *User) LastLogin() *time.Time {
+	return u.lastLogin
 }

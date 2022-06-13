@@ -146,11 +146,16 @@ func (h *handler) OrdersFunc(c *gin.Context) {
 }
 
 func (h *handler) BalanceFunc(c *gin.Context) {
+	s, ok := h.GetSessionHelper(c)
+	if !ok {
+		return
+	}
 
+	c.JSON(http.StatusOK, s.User())
 }
 
 func (h *handler) WithdrawFunc(c *gin.Context) {
-	if ok := h.ValidateContentType(c, "text/plain"); !ok {
+	if ok := h.ValidateContentType(c, "application/json"); !ok {
 		return
 	}
 
@@ -166,6 +171,8 @@ func (h *handler) WithdrawFunc(c *gin.Context) {
 		switch {
 		case errors.As(err, &withdrawals.InvalidOrderError):
 			c.AbortWithStatusJSON(http.StatusUnprocessableEntity, err.Error())
+		case errors.As(err, &withdrawals.NotEnoughBalanceError):
+			c.AbortWithStatusJSON(http.StatusPaymentRequired, err.Error())
 		default:
 			h.logger.Error().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
@@ -173,7 +180,7 @@ func (h *handler) WithdrawFunc(c *gin.Context) {
 		return
 	}
 
-	c.Status(http.StatusAccepted)
+	c.Status(http.StatusOK)
 }
 
 func (h *handler) WithdrawalsFunc(c *gin.Context) {
@@ -187,7 +194,7 @@ func (h *handler) WithdrawalsFunc(c *gin.Context) {
 	data, err := h.ctrl.Withdrawals(ctx, s.User())
 	if err != nil {
 		switch {
-		case errors.As(err, &orders.NoItemsError):
+		case errors.As(err, &withdrawals.NoRecordsError):
 			c.AbortWithStatus(http.StatusNoContent)
 		default:
 			h.logger.Error().Stack().Err(err).Send()

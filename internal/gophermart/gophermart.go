@@ -63,23 +63,24 @@ func router(db storage.Repo, q accrual.Queue, logger *config.Logger) *gin.Engine
 
 	h := handlers.Handler(db, q, logger, time.Second*30)
 	r.GET("/ping", h.Ping)
-	auth := middlewares.AuthRequired(db, logger)
+	authBasic := middlewares.AuthBasic(db, logger)
+	authWithBalance := middlewares.AuthWithBalance(db, logger)
 
 	api := r.Group("api/user")
 	{
 		api.POST("/login", h.LoginFunc)
 		api.POST("/register", h.RegisterFunc)
-		api.POST("/logout", auth, h.LogoutFunc)
+		api.POST("/logout", authBasic, h.LogoutFunc)
 
 		orders := api.Group("/orders")
-		orders.Use(auth)
+		orders.Use(authBasic)
 		{
 			orders.POST("/", h.OrderFunc)
 			orders.GET("/", h.OrdersFunc)
 		}
 
 		balance := api.Group("/balance")
-		balance.Use(auth)
+		balance.Use(authWithBalance)
 		{
 			balance.GET("/", h.BalanceFunc)
 			balance.POST("/withdraw", h.WithdrawFunc)

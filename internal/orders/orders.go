@@ -2,6 +2,7 @@ package orders
 
 import (
 	"encoding/json"
+	"github.com/fedoroko/gophermart/internal/validation"
 	"io"
 	"io/ioutil"
 	"strconv"
@@ -41,16 +42,14 @@ func FromPlain(user *users.User, body io.Reader) (*Order, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	number, err := strconv.ParseInt(string(b), 10, 64)
 	if err != nil {
 		return nil, ThrowInvalidRequestErr()
 	}
 
-	//if validation.IsValid(number) == false {
-	//	return nil, ThrowInvalidNumberErr()
-	//}
-
+	if validation.IsValid(number) == false {
+		return nil, ThrowInvalidNumberErr()
+	}
 	return &Order{
 		Number:     number,
 		User:       user,

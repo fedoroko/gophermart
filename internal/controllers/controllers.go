@@ -112,15 +112,10 @@ func (c *controller) Withdraw(ctx context.Context, u *users.User, body io.Reader
 }
 
 func (c *controller) Withdrawals(ctx context.Context, u *users.User) ([]*withdrawals.Withdrawal, error) {
-	//ors, err := c.r.UserWithdrawals(ctx, u)
-	//if err != nil {
-	//	return nil, err
-	//}
+	ws, err := c.r.UserWithdrawals(ctx, u)
+	if err != nil {
+		return nil, err
+	}
 
-	//var ret []*orders.JSONWithdrawal
-	//for _, o := range ors {
-	//	ret = append(ret, o.ToJSONWithdrawal())
-	//}
-
-	return nil, nil
+	return ws, nil
 }

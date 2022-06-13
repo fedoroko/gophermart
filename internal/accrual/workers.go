@@ -119,7 +119,7 @@ type checkJSON struct {
 
 func statusEncode(status string) int {
 	table := map[string]int{
-		"NEW":        1,
+		"REGISTERED": 1,
 		"PROCESSING": 2,
 		"PROCESSED":  3,
 		"INVALID":    4,

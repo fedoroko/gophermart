@@ -143,13 +143,14 @@ func TestTempSession_Commit(t *testing.T) {
 
 func TestTempUser_Commit(t *testing.T) {
 	type fields struct {
-		ID        *int
+		ID        *int64
 		Login     string
 		Password  string
 		Balance   *float64
 		Withdrawn *float64
 		LastLogin *time.Time
 	}
+	var blankId int64 = 1
 	tests := []struct {
 		name   string
 		fields fields
@@ -157,6 +158,21 @@ func TestTempUser_Commit(t *testing.T) {
 	}{
 		{
 			name: "positive",
+			fields: fields{
+				ID:        &blankId,
+				Login:     "gopher",
+				Password:  "qwerty",
+				Balance:   nil,
+				Withdrawn: nil,
+				LastLogin: nil,
+			},
+			want: &User{
+				id:    1,
+				login: "gopher",
+			},
+		},
+		{
+			name: "blank id",
 			fields: fields{
 				ID:        nil,
 				Login:     "gopher",

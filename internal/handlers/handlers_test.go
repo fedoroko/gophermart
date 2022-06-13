@@ -3,7 +3,9 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"errors"
+	"github.com/fedoroko/gophermart/internal/middlewares"
+	"github.com/fedoroko/gophermart/internal/orders"
+	"github.com/rs/zerolog"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -27,8 +29,12 @@ func SetUpRouter() *gin.Engine {
 	return router
 }
 
-func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader) (*http.Response, string) {
+func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader, ct string, token *string) (*http.Response, string) {
 	req, err := http.NewRequest(method, ts.URL+path, body)
+	req.Header.Set("Content-type", ct)
+	if token != nil {
+		req.Header.Set("Authorization", *token)
+	}
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -56,7 +62,9 @@ func Test_handler_LoginFunc(t *testing.T) {
 		code int
 		body string
 	}
+	var blankId int64 = 1
 	user := users.TempUser{
+		ID:       &blankId,
 		Login:    "gopher",
 		Password: "qwerty",
 	}.Commit()
@@ -142,7 +150,7 @@ func Test_handler_LoginFunc(t *testing.T) {
 					Password: "qwerty",
 				},
 				session: nil,
-				err:     errors.New(" no rows "),
+				err:     users.WrongPairError,
 			},
 			want: want{
 				code: http.StatusUnauthorized,
@@ -155,7 +163,8 @@ func Test_handler_LoginFunc(t *testing.T) {
 	defer ctrl.Finish()
 
 	db := mocks.NewMockRepo(ctrl)
-	h := Handler(db, nil, time.Second*30)
+	l := config.NewLogger(&zerolog.Logger{})
+	h := Handler(db, nil, l, time.Second*30)
 	r := SetUpRouter()
 	r.POST("/api/user/login", h.LoginFunc)
 
@@ -170,7 +179,10 @@ func Test_handler_LoginFunc(t *testing.T) {
 					Return(tt.dbExpect.session, tt.dbExpect.err)
 			}
 
-			resp, body := testRequest(t, ts, http.MethodPost, "/api/user/login", bytes.NewReader(tt.fields.body))
+			resp, body := testRequest(
+				t, ts, http.MethodPost, "/api/user/login",
+				bytes.NewReader(tt.fields.body), "application/json", nil)
+
 			assert.Equal(t, tt.want.code, resp.StatusCode)
 			if len(tt.want.body) > 0 {
 				assert.Equal(t, tt.want.body, body)
@@ -181,8 +193,7 @@ func Test_handler_LoginFunc(t *testing.T) {
 
 func Test_handler_LogoutFunc(t *testing.T) {
 	type fields struct {
-		r       storage.Repo
-		logger  *config.Logger
+		db      storage.Repo
 		timeout time.Duration
 	}
 	type args struct {
@@ -198,8 +209,6 @@ func Test_handler_LogoutFunc(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := &handler{
-				r:       tt.fields.r,
-				logger:  tt.fields.logger,
 				timeout: tt.fields.timeout,
 			}
 			h.LogoutFunc(tt.args.c)
@@ -208,28 +217,23 @@ func Test_handler_LogoutFunc(t *testing.T) {
 }
 
 func Test_handler_OrderFunc(t *testing.T) {
+	var blankId int64 = 1
+	user := users.TempUser{
+		ID:    &blankId,
+		Login: "gopaher",
+	}.Commit()
 	type fields struct {
-		body []byte
+		body    []byte
+		waitErr bool
 	}
 	type dbExpect struct {
-		ctx     context.Context
-		user    *users.TempUser
-		session *users.Session
-		err     error
+		ctx   context.Context
+		order *orders.Order
+		err   error
 	}
 	type want struct {
 		code int
-		body string
 	}
-	user := users.TempUser{
-		Login:    "gopher",
-		Password: "qwerty",
-	}.Commit()
-	session := users.TempSession{
-		Token:  "token123",
-		User:   user,
-		Expire: time.Now().Add(time.Minute * 3),
-	}.Commit()
 	tests := []struct {
 		name     string
 		fields   fields
@@ -239,22 +243,19 @@ func Test_handler_OrderFunc(t *testing.T) {
 		{
 			name: "positive",
 			fields: fields{
-				body: []byte(`
-					{"login":"gopher","password":"qwerty"}
-				`),
+				body:    []byte(`5512703182881200`),
+				waitErr: false,
 			},
 			dbExpect: dbExpect{
 				ctx: context.Background(),
-				user: &users.TempUser{
-					Login:    "gopher",
-					Password: "qwerty",
+				order: &orders.Order{
+					Number: 5512703182881200,
+					User:   user,
 				},
-				session: session,
-				err:     nil,
+				err: nil,
 			},
 			want: want{
-				code: http.StatusOK,
-				body: "\"token123\"",
+				code: http.StatusAccepted,
 			},
 		},
 		{
@@ -263,55 +264,68 @@ func Test_handler_OrderFunc(t *testing.T) {
 				body: []byte(`
 					{"login":"go","password":"qwerty"}
 				`),
-			},
-			dbExpect: dbExpect{
-				ctx:     context.Background(),
-				user:    nil,
-				session: nil,
-				err:     nil,
+				waitErr: true,
 			},
 			want: want{
 				code: http.StatusBadRequest,
-				body: "",
 			},
 		},
 		{
 			name: "bad format #2",
 			fields: fields{
 				body: []byte(`
-					{}
+					
 				`),
-			},
-			dbExpect: dbExpect{
-				ctx:     context.Background(),
-				user:    nil,
-				session: nil,
-				err:     nil,
+				waitErr: true,
 			},
 			want: want{
 				code: http.StatusBadRequest,
-				body: "",
 			},
 		},
 		{
-			name: "wrong pair",
+			name: "invalid number",
 			fields: fields{
-				body: []byte(`
-					{"login":"gopher","password":"qwerty"}
-				`),
+				body:    []byte(`1`),
+				waitErr: true,
+			},
+			want: want{
+				code: http.StatusUnprocessableEntity,
+			},
+		},
+		{
+			name: "already exists",
+			fields: fields{
+				body:    []byte(`5512703182881200`),
+				waitErr: false,
 			},
 			dbExpect: dbExpect{
 				ctx: context.Background(),
-				user: &users.TempUser{
-					Login:    "gopher",
-					Password: "qwerty",
+				order: &orders.Order{
+					Number: 5512703182881200,
+					User:   user,
 				},
-				session: nil,
-				err:     errors.New(" no rows "),
+				err: orders.ThrowAlreadyExistsErr(),
 			},
 			want: want{
-				code: http.StatusUnauthorized,
-				body: "",
+				code: http.StatusOK,
+			},
+		},
+		{
+			name: "belongs to other",
+			fields: fields{
+				body:    []byte(`5512703182881200`),
+				waitErr: false,
+			},
+			dbExpect: dbExpect{
+				ctx: context.Background(),
+				order: &orders.Order{
+					Number: 5512703182881200,
+					User:   user,
+				},
+				err: orders.ThrowBelongToAnotherErr(),
+			},
+			want: want{
+				code: http.StatusConflict,
 			},
 		},
 	}
@@ -320,57 +334,76 @@ func Test_handler_OrderFunc(t *testing.T) {
 	defer ctrl.Finish()
 
 	db := mocks.NewMockRepo(ctrl)
-	h := Handler(db, nil, time.Second*30)
+	l := config.NewLogger(&zerolog.Logger{})
+	q := mocks.NewMockQueue(ctrl)
+	h := Handler(db, q, l, time.Second*30)
 	r := SetUpRouter()
-	r.POST("/api/user/login", h.LoginFunc)
+	r.Use(middlewares.AuthBasic(db, l))
+	r.POST("/api/user/order", h.OrderFunc)
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
+	token := "123"
+	s := users.TempSession{
+		Token:  token,
+		User:   user,
+		Expire: time.Now().Add(time.Minute),
+	}.Commit()
+
+	q.EXPECT().Push(gomock.Any()).Return(nil)
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.dbExpect.user != nil {
+			db.EXPECT().SessionCheck(gomock.Any(), token).Return(s, nil)
+			if tt.fields.waitErr == false {
 				db.EXPECT().
-					UserExists(gomock.Any(), tt.dbExpect.user).
-					Return(tt.dbExpect.session, tt.dbExpect.err)
+					OrderCreate(gomock.Any(), gomock.Any()).
+					Return(tt.dbExpect.err)
 			}
 
-			resp, body := testRequest(t, ts, http.MethodPost, "/api/user/login", bytes.NewReader(tt.fields.body))
+			resp, _ := testRequest(
+				t, ts, http.MethodPost, "/api/user/order",
+				bytes.NewReader(tt.fields.body), "text/plain", &token)
 			assert.Equal(t, tt.want.code, resp.StatusCode)
-			if len(tt.want.body) > 0 {
-				assert.Equal(t, tt.want.body, body)
-			}
 		})
 	}
 }
 
-func Test_handler_OrdersFunc(t *testing.T) {
-	type fields struct {
-		r       storage.Repo
-		logger  *config.Logger
-		timeout time.Duration
-	}
-	type args struct {
-		c *gin.Context
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := &handler{
-				r:       tt.fields.r,
-				logger:  tt.fields.logger,
-				timeout: tt.fields.timeout,
-			}
-			h.OrdersFunc(tt.args.c)
-		})
-	}
-}
+//func Test_handler_OrdersFunc(t *testing.T) {
+//	type fields struct {
+//		r       storage.Repo
+//		logger  *config.Logger
+//		timeout time.Duration
+//	}
+//	type args struct {
+//		c *gin.Context
+//	}
+//	tests := []struct {
+//		name   string
+//		fields fields
+//		args   args
+//	}{
+//		// TODO: Add test cases.
+//	}
+//
+//	ctrl := gomock.NewController(t)
+//	defer ctrl.Finish()
+//
+//	db := mocks.NewMockRepo(ctrl)
+//	h := Handler(db, nil, nil, time.Second*30)
+//	r := SetUpRouter()
+//	r.POST("/api/user/login", h.LoginFunc)
+//
+//	ts := httptest.NewServer(r)
+//	defer ts.Close()
+//
+//	for _, tt := range tests {
+//		t.Run(tt.name, func(t *testing.T) {
+//			h.OrdersFunc(tt.args.c)
+//		})
+//	}
+//}
 
 func Test_handler_RegisterFunc(t *testing.T) {
 	type fields struct {
@@ -472,7 +505,7 @@ func Test_handler_RegisterFunc(t *testing.T) {
 					Password: "qwerty",
 				},
 				session: nil,
-				err:     errors.New("duplicate key"),
+				err:     users.ThrowAlreadyExistsErr(),
 			},
 			want: want{
 				code: http.StatusConflict,
@@ -485,7 +518,8 @@ func Test_handler_RegisterFunc(t *testing.T) {
 	defer ctrl.Finish()
 
 	db := mocks.NewMockRepo(ctrl)
-	h := Handler(db, nil, time.Second*30)
+	l := config.NewLogger(&zerolog.Logger{})
+	h := Handler(db, nil, l, time.Second*30)
 	r := SetUpRouter()
 	r.POST("/api/user/register", h.RegisterFunc)
 
@@ -500,7 +534,9 @@ func Test_handler_RegisterFunc(t *testing.T) {
 					Return(tt.dbExpect.session, tt.dbExpect.err)
 			}
 
-			resp, body := testRequest(t, ts, http.MethodPost, "/api/user/register", bytes.NewReader(tt.fields.body))
+			resp, body := testRequest(
+				t, ts, http.MethodPost, "/api/user/register",
+				bytes.NewReader(tt.fields.body), "application/json", nil)
 			assert.Equal(t, tt.want.code, resp.StatusCode)
 			if len(tt.want.body) > 0 {
 				assert.Equal(t, tt.want.body, body)
@@ -509,58 +545,73 @@ func Test_handler_RegisterFunc(t *testing.T) {
 	}
 }
 
-func Test_handler_WithdrawFunc(t *testing.T) {
-	type fields struct {
-		r       storage.Repo
-		logger  *config.Logger
-		timeout time.Duration
-	}
-	type args struct {
-		c *gin.Context
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := &handler{
-				r:       tt.fields.r,
-				logger:  tt.fields.logger,
-				timeout: tt.fields.timeout,
-			}
-			h.WithdrawFunc(tt.args.c)
-		})
-	}
-}
-
-func Test_handler_WithdrawalsFunc(t *testing.T) {
-	type fields struct {
-		r       storage.Repo
-		logger  *config.Logger
-		timeout time.Duration
-	}
-	type args struct {
-		c *gin.Context
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := &handler{
-				r:       tt.fields.r,
-				logger:  tt.fields.logger,
-				timeout: tt.fields.timeout,
-			}
-			h.WithdrawalsFunc(tt.args.c)
-		})
-	}
-}
+//func Test_handler_WithdrawFunc(t *testing.T) {
+//	type fields struct {
+//		r       storage.Repo
+//		logger  *config.Logger
+//		timeout time.Duration
+//	}
+//	type args struct {
+//		c *gin.Context
+//	}
+//	tests := []struct {
+//		name   string
+//		fields fields
+//		args   args
+//	}{
+//		// TODO: Add test cases.
+//	}
+//	ctrl := gomock.NewController(t)
+//	defer ctrl.Finish()
+//
+//	db := mocks.NewMockRepo(ctrl)
+//	h := Handler(db, nil, nil, time.Second*30)
+//	r := SetUpRouter()
+//	r.POST("/api/user/login", h.LoginFunc)
+//
+//	ts := httptest.NewServer(r)
+//	defer ts.Close()
+//
+//	for _, tt := range tests {
+//		t.Run(tt.name, func(t *testing.T) {
+//			h.WithdrawFunc(tt.args.c)
+//		})
+//	}
+//}
+//
+//func Test_handler_WithdrawalsFunc(t *testing.T) {
+//	type fields struct {
+//		r       storage.Repo
+//		logger  *config.Logger
+//		timeout time.Duration
+//	}
+//	type args struct {
+//		c *gin.Context
+//	}
+//	tests := []struct {
+//		name   string
+//		fields fields
+//		args   args
+//	}{
+//		// TODO: Add test cases.
+//	}
+//	ctrl := gomock.NewController(t)
+//	defer ctrl.Finish()
+//
+//	db := mocks.NewMockRepo(ctrl)
+//	h := Handler(db, nil, nil, time.Second*30)
+//	r := SetUpRouter()
+//	r.POST("/api/user/login", h.LoginFunc)
+//
+//	ts := httptest.NewServer(r)
+//	defer ts.Close()
+//	for _, tt := range tests {
+//		t.Run(tt.name, func(t *testing.T) {
+//			h := &handler{
+//				logger:  tt.fields.logger,
+//				timeout: tt.fields.timeout,
+//			}
+//			h.WithdrawalsFunc(tt.args.c)
+//		})
+//	}
+//}

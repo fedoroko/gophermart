@@ -25,6 +25,7 @@ func ThrowTooManyRequestsErr() *tooManyRequestsErr {
 	return &tooManyRequestsErr{}
 }
 
+//go:generate mockgen -destination=../mocks/mock_doer_queue.go -package=mocks github.com/fedoroko/gophermart/internal/accrual Queue
 type Queue interface {
 	Push(*orders.Order) error
 	Listen() error
@@ -100,7 +101,7 @@ func (q *queue) setUpAccrual(address string) {
 }
 
 type poster struct {
-	quit     chan struct{}
+	quit     <-chan struct{}
 	toPost   chan *orders.Order
 	toRepost chan *orders.Order
 	pool     []*orders.Order
@@ -142,7 +143,7 @@ func (p *poster) listen() error {
 }
 
 type checker struct {
-	quit       chan struct{}
+	quit       <-chan struct{}
 	toWrite    chan *orders.Order
 	toCheck    chan *orders.Order
 	processing []*orders.Order
@@ -163,6 +164,7 @@ func (c *checker) handleOrderStatus(o *orders.Order) {
 		c.logger.Debug().Msg("appending to processed")
 		c.processed = append(c.processed, o)
 		if len(c.processed) == cap(c.processed) {
+			c.logger.Debug().Msg("flushing by cap")
 			c.flush()
 		}
 	}
@@ -178,8 +180,10 @@ func (c *checker) listen() error {
 		case o := <-c.toWrite:
 			c.handleOrderStatus(o)
 		case <-ticker.C:
+			c.logger.Debug().Msg("flushing by ticker")
 			c.flush()
 		case <-c.quit:
+			c.logger.Debug().Msg("flushing by quit")
 			c.flush()
 			c.logger.Debug().Msg("poster: CLOSED")
 			return nil
@@ -219,9 +223,10 @@ func (c *checker) flush() error {
 	return nil
 }
 
-func newPoster(logger *config.Logger) *poster {
-	subLogger := logger.With().Str("Component", "Checker").Logger()
+func newPoster(quit <-chan struct{}, logger *config.Logger) *poster {
+	subLogger := logger.With().Str("Component", "Poster").Logger()
 	return &poster{
+		quit:     quit,
 		toPost:   make(chan *orders.Order, 1000),
 		toRepost: make(chan *orders.Order, 1000),
 		pool:     []*orders.Order{},
@@ -230,9 +235,10 @@ func newPoster(logger *config.Logger) *poster {
 	}
 }
 
-func newChecker(db storage.Repo, logger *config.Logger) *checker {
+func newChecker(quit <-chan struct{}, db storage.Repo, logger *config.Logger) *checker {
 	subLogger := logger.With().Str("Component", "Checker").Logger()
 	return &checker{
+		quit:       quit,
 		toWrite:    make(chan *orders.Order, 1000),
 		toCheck:    make(chan *orders.Order, 1000),
 		processing: make([]*orders.Order, 0, 1000),
@@ -249,8 +255,8 @@ func NewQueue(cfg *config.ServerConfig, db storage.Repo, logger *config.Logger) 
 	rateLimit := make(chan struct{})
 	sleep := make(chan struct{})
 
-	p := newPoster(logger)
-	c := newChecker(db, logger)
+	p := newPoster(quit, logger)
+	c := newChecker(quit, db, logger)
 
 	q := &queue{
 		quit:      quit,
