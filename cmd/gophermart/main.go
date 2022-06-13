@@ -6,6 +6,10 @@ import (
 	"github.com/fedoroko/gophermart/internal/gophermart"
 )
 
+func init() {
+	fmt.Println("HELLO THERE")
+}
+
 func main() {
 	cfg := config.NewServerConfig().Env().Flags()
 	logger := cfg.GetLogger()
