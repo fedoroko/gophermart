@@ -65,8 +65,6 @@ func (q *queue) Listen() error {
 			for i := 1; i < len(q.workers); i++ {
 				q.sleep <- struct{}{}
 			}
-		default:
-
 		}
 
 	}

@@ -93,7 +93,7 @@ func FromJSON(user *users.User, body io.Reader) (*Withdrawal, error) {
 		return nil, err
 	}
 
-	if validation.IsValid(w.Order) == false {
+	if !validation.IsValid(w.Order) {
 		return nil, ThrowInvalidNumberErr()
 	}
 

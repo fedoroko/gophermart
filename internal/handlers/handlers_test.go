@@ -29,7 +29,7 @@ func SetUpRouter() *gin.Engine {
 	return router
 }
 
-func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader, ct string, token *string) (*http.Response, string) {
+func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader, ct string, token *string) (int, string) {
 	req, err := http.NewRequest(method, ts.URL+path, body)
 	req.Header.Set("Content-type", ct)
 	if token != nil {
@@ -45,7 +45,7 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io
 
 	defer resp.Body.Close()
 
-	return resp, string(respBody)
+	return resp.StatusCode, string(respBody)
 }
 
 func Test_handler_LoginFunc(t *testing.T) {
@@ -62,9 +62,9 @@ func Test_handler_LoginFunc(t *testing.T) {
 		code int
 		body string
 	}
-	var blankId int64 = 1
+	var blankID int64 = 1
 	user := users.TempUser{
-		ID:       &blankId,
+		ID:       &blankID,
 		Login:    "gopher",
 		Password: "qwerty",
 	}.Commit()
@@ -183,7 +183,7 @@ func Test_handler_LoginFunc(t *testing.T) {
 				t, ts, http.MethodPost, "/api/user/login",
 				bytes.NewReader(tt.fields.body), "application/json", nil)
 
-			assert.Equal(t, tt.want.code, resp.StatusCode)
+			assert.Equal(t, tt.want.code, resp)
 			if len(tt.want.body) > 0 {
 				assert.Equal(t, tt.want.body, body)
 			}
@@ -217,9 +217,9 @@ func Test_handler_LogoutFunc(t *testing.T) {
 }
 
 func Test_handler_OrderFunc(t *testing.T) {
-	var blankId int64 = 1
+	var blankID int64 = 1
 	user := users.TempUser{
-		ID:    &blankId,
+		ID:    &blankID,
 		Login: "gopaher",
 	}.Commit()
 	type fields struct {
@@ -365,7 +365,7 @@ func Test_handler_OrderFunc(t *testing.T) {
 			resp, _ := testRequest(
 				t, ts, http.MethodPost, "/api/user/order",
 				bytes.NewReader(tt.fields.body), "text/plain", &token)
-			assert.Equal(t, tt.want.code, resp.StatusCode)
+			assert.Equal(t, tt.want.code, resp)
 		})
 	}
 }
@@ -537,7 +537,7 @@ func Test_handler_RegisterFunc(t *testing.T) {
 			resp, body := testRequest(
 				t, ts, http.MethodPost, "/api/user/register",
 				bytes.NewReader(tt.fields.body), "application/json", nil)
-			assert.Equal(t, tt.want.code, resp.StatusCode)
+			assert.Equal(t, tt.want.code, resp)
 			if len(tt.want.body) > 0 {
 				assert.Equal(t, tt.want.body, body)
 			}
