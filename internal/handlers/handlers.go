@@ -50,7 +50,7 @@ func (h *handler) LoginFunc(c *gin.Context) {
 		}
 		return
 	}
-
+	c.Set("Authorization", token)
 	c.JSON(http.StatusOK, token)
 }
 
@@ -72,6 +72,7 @@ func (h *handler) RegisterFunc(c *gin.Context) {
 		return
 	}
 
+	c.Set("Authorization", token)
 	c.JSON(http.StatusOK, token)
 }
 
