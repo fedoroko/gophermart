@@ -414,7 +414,7 @@ func Postgres(cfg *config.ServerConfig, logger *config.Logger) (Repo, error) {
 	}
 
 	stmt := prepare(db)
-
+	logger.Info().Msg("DB: PREPARED")
 	return &postgres{
 		DB:     db,
 		logger: logger,
