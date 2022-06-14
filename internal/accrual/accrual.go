@@ -52,7 +52,6 @@ func (q *queue) Listen() error {
 		go w.run(&wg)
 	}
 
-	time.Sleep(time.Second)
 	go q.poster.listen()
 	go q.checker.listen()
 
@@ -165,7 +164,7 @@ func (c *checker) handleOrderStatus(o *orders.Order) {
 
 func (c *checker) listen() error {
 	c.logger.Debug().Msg("checker: LISTENING")
-	ticker := time.NewTicker(time.Millisecond * 500)
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
 	for {
