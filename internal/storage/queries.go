@@ -2,10 +2,10 @@ package storage
 
 const (
 	schema = `	
-				DROP TABLE users;
-				DROP TABLE sessions;
-				DROP TABLE orders;
-				DROP TABLE withdrawals;
+				//DROP TABLE users;
+				//DROP TABLE sessions;
+				//DROP TABLE orders;
+				//DROP TABLE withdrawals;
 
 
 				CREATE TABLE users (
