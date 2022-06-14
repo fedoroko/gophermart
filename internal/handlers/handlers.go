@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/fedoroko/gophermart/internal/accrual"
 	"github.com/fedoroko/gophermart/internal/withdrawals"
@@ -146,6 +147,8 @@ func (h *handler) OrdersFunc(c *gin.Context) {
 		return
 	}
 
+	ret, _ := json.Marshal(data)
+	h.logger.Debug().Interface("data", string(ret))
 	c.JSON(http.StatusOK, data)
 }
 
@@ -155,6 +158,7 @@ func (h *handler) BalanceFunc(c *gin.Context) {
 		return
 	}
 
+	h.logger.Debug().Interface("balance", s.User().Balance).Send()
 	c.JSON(http.StatusOK, s.User())
 }
 
