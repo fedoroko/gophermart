@@ -13,7 +13,7 @@ type User struct {
 	lastLogin *time.Time
 }
 
-func (u *User) Id() int64 {
+func (u *User) ID() int64 {
 	return u.id
 }
 

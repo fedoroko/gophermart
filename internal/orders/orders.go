@@ -47,7 +47,7 @@ func FromPlain(user *users.User, body io.Reader) (*Order, error) {
 		return nil, ThrowInvalidRequestErr()
 	}
 
-	if validation.IsValid(number) == false {
+	if !validation.IsValid(number) {
 		return nil, ThrowInvalidNumberErr()
 	}
 	return &Order{
