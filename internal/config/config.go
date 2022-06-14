@@ -48,7 +48,7 @@ func NewServerConfig() *ServerConfig {
 	return &ServerConfig{
 		Address:      "127.0.0.1:8000",
 		Accrual:      "127.0.0.1:8080",
-		Database:     "postgresql://fedoroko@localhost/gophermart",
+		Database:     "",
 		WorkersCount: 2,
 		Debug:        true,
 	}
