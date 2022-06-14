@@ -167,7 +167,7 @@ func (c *checker) handleOrderStatus(o *orders.Order) {
 
 func (c *checker) listen() error {
 	c.logger.Debug().Msg("checker: LISTENING")
-	ticker := time.NewTicker(time.Second * 20)
+	ticker := time.NewTicker(time.Second * 5)
 	defer ticker.Stop()
 
 	for {
