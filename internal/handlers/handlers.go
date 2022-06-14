@@ -84,6 +84,7 @@ func (h *handler) LogoutFunc(c *gin.Context) {
 		h.logger.Error().Stack().Err(err).Send()
 		// TO-DO
 		c.AbortWithStatus(http.StatusBadRequest)
+		return
 	}
 
 	c.Redirect(http.StatusOK, "/")
@@ -140,6 +141,7 @@ func (h *handler) OrdersFunc(c *gin.Context) {
 			h.logger.Error().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
+		return
 	}
 
 	c.JSON(http.StatusOK, data)
@@ -200,6 +202,7 @@ func (h *handler) WithdrawalsFunc(c *gin.Context) {
 			h.logger.Error().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
+		return
 	}
 
 	c.JSON(http.StatusOK, data)

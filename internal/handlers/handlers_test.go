@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/fedoroko/gophermart/internal/middlewares"
 	"github.com/fedoroko/gophermart/internal/orders"
+	"github.com/fedoroko/gophermart/internal/withdrawals"
 	"github.com/rs/zerolog"
 	"io"
 	"io/ioutil"
@@ -29,7 +30,7 @@ func SetUpRouter() *gin.Engine {
 	return router
 }
 
-func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader, ct string, token *string) (*http.Response, string) {
+func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader, ct string, token *string) (int, string) {
 	req, err := http.NewRequest(method, ts.URL+path, body)
 	req.Header.Set("Content-type", ct)
 	if token != nil {
@@ -45,7 +46,7 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io
 
 	defer resp.Body.Close()
 
-	return resp, string(respBody)
+	return resp.StatusCode, string(respBody)
 }
 
 func Test_handler_LoginFunc(t *testing.T) {
@@ -62,9 +63,9 @@ func Test_handler_LoginFunc(t *testing.T) {
 		code int
 		body string
 	}
-	var blankId int64 = 1
+	var blankID int64 = 1
 	user := users.TempUser{
-		ID:       &blankId,
+		ID:       &blankID,
 		Login:    "gopher",
 		Password: "qwerty",
 	}.Commit()
@@ -183,7 +184,7 @@ func Test_handler_LoginFunc(t *testing.T) {
 				t, ts, http.MethodPost, "/api/user/login",
 				bytes.NewReader(tt.fields.body), "application/json", nil)
 
-			assert.Equal(t, tt.want.code, resp.StatusCode)
+			assert.Equal(t, tt.want.code, resp)
 			if len(tt.want.body) > 0 {
 				assert.Equal(t, tt.want.body, body)
 			}
@@ -217,9 +218,9 @@ func Test_handler_LogoutFunc(t *testing.T) {
 }
 
 func Test_handler_OrderFunc(t *testing.T) {
-	var blankId int64 = 1
+	var blankID int64 = 1
 	user := users.TempUser{
-		ID:    &blankId,
+		ID:    &blankID,
 		Login: "gopaher",
 	}.Commit()
 	type fields struct {
@@ -339,7 +340,7 @@ func Test_handler_OrderFunc(t *testing.T) {
 	h := Handler(db, q, l, time.Second*30)
 	r := SetUpRouter()
 	r.Use(middlewares.AuthBasic(db, l))
-	r.POST("/api/user/order", h.OrderFunc)
+	r.POST("/api/user/orders", h.OrderFunc)
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -363,47 +364,102 @@ func Test_handler_OrderFunc(t *testing.T) {
 			}
 
 			resp, _ := testRequest(
-				t, ts, http.MethodPost, "/api/user/order",
+				t, ts, http.MethodPost, "/api/user/orders",
 				bytes.NewReader(tt.fields.body), "text/plain", &token)
-			assert.Equal(t, tt.want.code, resp.StatusCode)
+			assert.Equal(t, tt.want.code, resp)
 		})
 	}
 }
 
-//func Test_handler_OrdersFunc(t *testing.T) {
-//	type fields struct {
-//		r       storage.Repo
-//		logger  *config.Logger
-//		timeout time.Duration
-//	}
-//	type args struct {
-//		c *gin.Context
-//	}
-//	tests := []struct {
-//		name   string
-//		fields fields
-//		args   args
-//	}{
-//		// TODO: Add test cases.
-//	}
-//
-//	ctrl := gomock.NewController(t)
-//	defer ctrl.Finish()
-//
-//	db := mocks.NewMockRepo(ctrl)
-//	h := Handler(db, nil, nil, time.Second*30)
-//	r := SetUpRouter()
-//	r.POST("/api/user/login", h.LoginFunc)
-//
-//	ts := httptest.NewServer(r)
-//	defer ts.Close()
-//
-//	for _, tt := range tests {
-//		t.Run(tt.name, func(t *testing.T) {
-//			h.OrdersFunc(tt.args.c)
-//		})
-//	}
-//}
+func floatToPointer(f float64) *float64 {
+	return &f
+}
+
+func Test_handler_OrdersFunc(t *testing.T) {
+	var blankID int64 = 1
+	user := users.TempUser{
+		ID:    &blankID,
+		Login: "gopher",
+	}.Commit()
+	type dbExpect struct {
+		ctx    context.Context
+		orders []*orders.Order
+		err    error
+	}
+	type want struct {
+		code int
+	}
+	tests := []struct {
+		name     string
+		dbExpect dbExpect
+		want     want
+	}{
+		{
+			name: "positive",
+			dbExpect: dbExpect{
+				ctx: context.Background(),
+				orders: []*orders.Order{
+					{
+						Number:  2375460850,
+						Accrual: floatToPointer(100),
+					},
+					{
+						Number:  5512703182881200,
+						Accrual: floatToPointer(200),
+					},
+				},
+				err: nil,
+			},
+			want: want{
+				code: http.StatusOK,
+			},
+		},
+		{
+			name: "no items",
+			dbExpect: dbExpect{
+				ctx:    context.Background(),
+				orders: []*orders.Order{},
+				err:    orders.ThrowNoItemsErr(),
+			},
+			want: want{
+				code: http.StatusNoContent,
+			},
+		},
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	db := mocks.NewMockRepo(ctrl)
+	l := config.NewLogger(&zerolog.Logger{})
+	q := mocks.NewMockQueue(ctrl)
+	h := Handler(db, q, l, time.Second*30)
+	r := SetUpRouter()
+	r.Use(middlewares.AuthBasic(db, l))
+	r.GET("/api/user/orders", h.OrdersFunc)
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	token := "123"
+	s := users.TempSession{
+		Token:  token,
+		User:   user,
+		Expire: time.Now().Add(time.Minute),
+	}.Commit()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db.EXPECT().SessionCheck(gomock.Any(), token).Return(s, nil)
+			db.EXPECT().UserOrders(gomock.Any(), user).Return(tt.dbExpect.orders, tt.dbExpect.err)
+
+			resp, _ := testRequest(
+				t, ts, http.MethodGet, "/api/user/orders",
+				nil, "text/plain", &token)
+			assert.Equal(t, tt.want.code, resp)
+		})
+	}
+}
 
 func Test_handler_RegisterFunc(t *testing.T) {
 	type fields struct {
@@ -537,7 +593,7 @@ func Test_handler_RegisterFunc(t *testing.T) {
 			resp, body := testRequest(
 				t, ts, http.MethodPost, "/api/user/register",
 				bytes.NewReader(tt.fields.body), "application/json", nil)
-			assert.Equal(t, tt.want.code, resp.StatusCode)
+			assert.Equal(t, tt.want.code, resp)
 			if len(tt.want.body) > 0 {
 				assert.Equal(t, tt.want.body, body)
 			}
@@ -545,73 +601,207 @@ func Test_handler_RegisterFunc(t *testing.T) {
 	}
 }
 
-//func Test_handler_WithdrawFunc(t *testing.T) {
-//	type fields struct {
-//		r       storage.Repo
-//		logger  *config.Logger
-//		timeout time.Duration
-//	}
-//	type args struct {
-//		c *gin.Context
-//	}
-//	tests := []struct {
-//		name   string
-//		fields fields
-//		args   args
-//	}{
-//		// TODO: Add test cases.
-//	}
-//	ctrl := gomock.NewController(t)
-//	defer ctrl.Finish()
-//
-//	db := mocks.NewMockRepo(ctrl)
-//	h := Handler(db, nil, nil, time.Second*30)
-//	r := SetUpRouter()
-//	r.POST("/api/user/login", h.LoginFunc)
-//
-//	ts := httptest.NewServer(r)
-//	defer ts.Close()
-//
-//	for _, tt := range tests {
-//		t.Run(tt.name, func(t *testing.T) {
-//			h.WithdrawFunc(tt.args.c)
-//		})
-//	}
-//}
-//
-//func Test_handler_WithdrawalsFunc(t *testing.T) {
-//	type fields struct {
-//		r       storage.Repo
-//		logger  *config.Logger
-//		timeout time.Duration
-//	}
-//	type args struct {
-//		c *gin.Context
-//	}
-//	tests := []struct {
-//		name   string
-//		fields fields
-//		args   args
-//	}{
-//		// TODO: Add test cases.
-//	}
-//	ctrl := gomock.NewController(t)
-//	defer ctrl.Finish()
-//
-//	db := mocks.NewMockRepo(ctrl)
-//	h := Handler(db, nil, nil, time.Second*30)
-//	r := SetUpRouter()
-//	r.POST("/api/user/login", h.LoginFunc)
-//
-//	ts := httptest.NewServer(r)
-//	defer ts.Close()
-//	for _, tt := range tests {
-//		t.Run(tt.name, func(t *testing.T) {
-//			h := &handler{
-//				logger:  tt.fields.logger,
-//				timeout: tt.fields.timeout,
-//			}
-//			h.WithdrawalsFunc(tt.args.c)
-//		})
-//	}
-//}
+func Test_handler_WithdrawFunc(t *testing.T) {
+	var blankID int64 = 1
+	user := users.TempUser{
+		ID:      &blankID,
+		Login:   "gopher",
+		Balance: floatToPointer(1000),
+	}.Commit()
+	type fields struct {
+		body    []byte
+		waitErr bool
+	}
+	type dbExpect struct {
+		withdrawal *withdrawals.Withdrawal
+		err        error
+	}
+	type want struct {
+		code int
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		dbExpect dbExpect
+		want     want
+	}{
+		{
+			name: "positive",
+			fields: fields{
+				body:    []byte(`{"order":"5512703182881200","sum":500}`),
+				waitErr: false,
+			},
+			dbExpect: dbExpect{
+				withdrawal: &withdrawals.Withdrawal{
+					Order:      5512703182881200,
+					User:       user,
+					Sum:        500,
+					UploadedAt: time.Now(),
+				},
+				err: nil,
+			},
+			want: want{
+				code: http.StatusOK,
+			},
+		},
+		{
+			name: "bad format #1",
+			fields: fields{
+				body: []byte(`
+					{"login":"go","password":"qwerty"}
+				`),
+				waitErr: true,
+			},
+			want: want{
+				code: http.StatusUnprocessableEntity,
+			},
+		},
+		{
+			name: "bad format #2",
+			fields: fields{
+				body:    []byte(``),
+				waitErr: true,
+			},
+			want: want{
+				code: http.StatusUnprocessableEntity,
+			},
+		},
+		{
+			name: "invalid number",
+			fields: fields{
+				body:    []byte(`{"order":"1","sum":500}`),
+				waitErr: true,
+			},
+			want: want{
+				code: http.StatusUnprocessableEntity,
+			},
+		},
+		{
+			name: "not enough balance",
+			fields: fields{
+				body:    []byte(`{"order":"2375460850","sum":10000}`),
+				waitErr: true,
+			},
+			want: want{
+				code: http.StatusPaymentRequired,
+			},
+		},
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	db := mocks.NewMockRepo(ctrl)
+	l := config.NewLogger(&zerolog.Logger{})
+	q := mocks.NewMockQueue(ctrl)
+	h := Handler(db, q, l, time.Second*30)
+	r := SetUpRouter()
+	r.Use(middlewares.AuthBasic(db, l))
+	r.POST("/api/user/balance/withdraw", h.WithdrawFunc)
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	token := "123"
+	s := users.TempSession{
+		Token:  token,
+		User:   user,
+		Expire: time.Now().Add(time.Minute),
+	}.Commit()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db.EXPECT().SessionCheck(gomock.Any(), token).Return(s, nil)
+			if !tt.fields.waitErr {
+				db.EXPECT().WithdrawalCreate(gomock.Any(), gomock.Any()).
+					Return(tt.dbExpect.err)
+			}
+
+			resp, _ := testRequest(
+				t, ts, http.MethodPost, "/api/user/balance/withdraw",
+				bytes.NewReader(tt.fields.body), "application/json", &token)
+			assert.Equal(t, tt.want.code, resp)
+		})
+	}
+}
+
+func Test_handler_WithdrawalsFunc(t *testing.T) {
+	var blankID int64 = 1
+	user := users.TempUser{
+		ID:    &blankID,
+		Login: "gopher",
+	}.Commit()
+	type dbExpect struct {
+		withdrawals []*withdrawals.Withdrawal
+		err         error
+	}
+	type want struct {
+		code int
+	}
+	tests := []struct {
+		name     string
+		dbExpect dbExpect
+		want     want
+	}{
+		{
+			name: "positive",
+			dbExpect: dbExpect{
+				withdrawals: []*withdrawals.Withdrawal{
+					{
+						Order:      2375460850,
+						Sum:        500,
+						UploadedAt: time.Now(),
+					},
+					{
+						Order:      5512703182881200,
+						Sum:        1000,
+						UploadedAt: time.Now(),
+					},
+				},
+				err: nil,
+			},
+			want: want{
+				code: http.StatusOK,
+			},
+		},
+		{
+			name: "no items",
+			dbExpect: dbExpect{
+				withdrawals: nil,
+				err:         withdrawals.ThrowNoRecordsErr(),
+			},
+			want: want{
+				code: http.StatusNoContent,
+			},
+		},
+	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	db := mocks.NewMockRepo(ctrl)
+	l := config.NewLogger(&zerolog.Logger{})
+	h := Handler(db, nil, l, time.Second*30)
+	r := SetUpRouter()
+	r.Use(middlewares.AuthBasic(db, l))
+	r.GET("/api/user/balance/withdrawals", h.WithdrawalsFunc)
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	token := "123"
+	s := users.TempSession{
+		Token:  token,
+		User:   user,
+		Expire: time.Now().Add(time.Minute),
+	}.Commit()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db.EXPECT().SessionCheck(gomock.Any(), token).Return(s, nil)
+			db.EXPECT().UserWithdrawals(gomock.Any(), user).Return(tt.dbExpect.withdrawals, tt.dbExpect.err)
+			resp, _ := testRequest(
+				t, ts, http.MethodGet, "/api/user/balance/withdrawals",
+				nil, "application/json", &token)
+			assert.Equal(t, tt.want.code, resp)
+		})
+	}
+}
