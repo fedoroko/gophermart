@@ -1,1 +1,0 @@
-mockgen -destination=mocks/mock_doer.go -package=mocks github.com/fedoroko/gophermart/internal/storage Repo

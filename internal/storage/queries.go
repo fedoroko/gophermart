@@ -27,7 +27,22 @@ const (
 				    sum REAL,
 				    uploaded_at TIMESTAMP default current_timestamp
 				);
+
+				CREATE INDEX users_login
+				ON users(login);
+
+				CREATE INDEX orders_user_id
+				ON orders(user_id);
+
+				CREATE INDEX withdrawals_user_id
+				ON withdrawals(user_id);
 				`
+
+	dropTables = `	DROP TABLE users;
+					DROP TABLE sessions;
+					DROP TABLE orders;
+					DROP TABLE withdrawals;
+					`
 
 	userExistsQuery = `UPDATE users SET last_login_at = current_timestamp
 					   WHERE login = $1
@@ -74,6 +89,10 @@ const (
 			;`
 
 	ordersUpdateQuery = `	UPDATE orders SET status = $1, accrual = $2;`
+
+	ordersRestoreQuery = ` 	SELECT number, status, uploaded_at FROM orders
+							WHERE status < 3
+							`
 
 	withdrawalCreateQuery = `	INSERT INTO withdrawals ("order", user_id, sum, uploaded_at)
 								VALUES ($1, $2, $3, $4)

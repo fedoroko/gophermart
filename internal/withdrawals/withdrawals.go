@@ -2,13 +2,13 @@ package withdrawals
 
 import (
 	"encoding/json"
-	"github.com/fedoroko/gophermart/internal/validation"
 	"io"
 	"io/ioutil"
 	"strconv"
 	"time"
 
 	"github.com/fedoroko/gophermart/internal/users"
+	"github.com/fedoroko/gophermart/internal/validation"
 )
 
 var InvalidOrderError *invalidOrderErr
@@ -23,6 +23,8 @@ func ThrowInvalidNumberErr() *invalidOrderErr {
 	return &invalidOrderErr{}
 }
 
+//
+
 var NotEnoughBalanceError *notEnoughBalanceErr
 
 type notEnoughBalanceErr struct{}
@@ -35,6 +37,8 @@ func ThrowNotEnoughBalanceErr() *notEnoughBalanceErr {
 	return &notEnoughBalanceErr{}
 }
 
+//
+
 var NoRecordsError *noRecordsErr
 
 type noRecordsErr struct{}
@@ -46,6 +50,8 @@ func (e *noRecordsErr) Error() string {
 func ThrowNoRecordsErr() *noRecordsErr {
 	return &noRecordsErr{}
 }
+
+//
 
 type Withdrawal struct {
 	Order      int64       `json:"order"`

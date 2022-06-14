@@ -4,23 +4,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/fedoroko/gophermart/internal/config"
-	"github.com/fedoroko/gophermart/internal/orders"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fedoroko/gophermart/internal/config"
+	"github.com/fedoroko/gophermart/internal/orders"
 )
 
 type wChans struct {
 	quit      <-chan struct{}
-	rateLimit chan<- struct{}
-	sleep     <-chan struct{}
-	toPost    <-chan *orders.Order
-	toRepost  chan *orders.Order
-	toWrite   chan<- *orders.Order
-	toCheck   chan *orders.Order
+	rateLimit chan<- struct{}      // канал для отправки сигнала о превышении лимита запросов
+	sleep     <-chan struct{}      // канал для получения сигнала о начале режима ожидания
+	toPost    <-chan *orders.Order // канал с ордерами для отправки
+	toRepost  chan *orders.Order   // канал возвращения неудачных ордеров в очередь
+	toWrite   chan<- *orders.Order // канал для передачи ордера для записи
+	toCheck   chan *orders.Order   // канал с ордерами для проверки
 }
 
 type worker struct {
@@ -30,15 +31,14 @@ type worker struct {
 	logger  *config.Logger
 }
 
+// run сейчас подумал, что наверное стоит разграничить воркеров на запись и проверку.
+// Есть ли в этом смысл?
 func (w *worker) run(wg *sync.WaitGroup) {
 	w.logger.Debug().Msg(fmt.Sprintf("worker %d: running", w.id))
 	wg.Add(1)
 	defer wg.Done()
 	for {
 		select {
-		case o := <-w.chs.toRepost:
-			w.logger.Debug().Msg(fmt.Sprintf("worker %d: got a requeued post", w.id))
-			w.post(o)
 		case o := <-w.chs.toPost:
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: got a post", w.id))
 			w.post(o)
@@ -55,29 +55,22 @@ func (w *worker) run(wg *sync.WaitGroup) {
 	}
 }
 
+// post обработка заказа на отправку
 func (w *worker) post(o *orders.Order) {
 	w.logger.Debug().Msg(fmt.Sprintf("worker %d: post func", w.id))
 	if err := w.postRequest(o); err != nil {
 		w.logger.Debug().Interface("err", err).Msg(fmt.Sprintf("worker %d: post func err", w.id))
 		if errors.As(err, &TooManyRequestsError) {
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: too many request, sleep for 30s", w.id))
-			w.chs.rateLimit <- struct{}{}
-			w.chs.toRepost <- o
-			time.Sleep(time.Second * 30)
+			w.chs.rateLimit <- struct{}{} // если получили 429 отправляет сигнал в queue
+			w.chs.toRepost <- o           // отправляет заказ обратно в очередь
+			time.Sleep(time.Second * 30)  // и засыпает (время опционально, для примера указал 30 сек)
 		}
 		return
 	}
-	w.chs.toWrite <- o
+	w.chs.toWrite <- o // после успесшной отправки заказа отдаем его под запись
 
 	w.logger.Debug().Msg(fmt.Sprintf("worker %d: post done", w.id))
-}
-
-type data struct {
-	Order int64 `json:"order"`
-	Goods struct {
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-	}
 }
 
 func (w *worker) postRequest(o *orders.Order) error {
@@ -99,11 +92,10 @@ func (w *worker) postRequest(o *orders.Order) error {
 	switch {
 	case req.StatusCode == http.StatusTooManyRequests:
 		return ThrowTooManyRequestsErr()
-	case req.StatusCode == http.StatusAccepted:
-		o.Status = 2
-		return nil
+	case req.StatusCode == http.StatusInternalServerError:
+		return errors.New("500")
 	default:
-		o.Status = 2
+		o.Status = 2 // тут были непонятки со статусами, но, судя по всему, любой кроме 429 и 500 нас устраивают
 		return nil
 	}
 }

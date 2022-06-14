@@ -20,7 +20,9 @@ type ServerConfig struct {
 	Address      string `env:"RUN_ADDRESS"`
 	Accrual      string `env:"ACCRUAL_SYSTEM_ADDRESS"`
 	Database     string `env:"DATABASE_URI"`
+	DBRefresh    bool   `env:"DB_REFRESH"`
 	Debug        bool
+	InstanceID   int `env:"INSTANCE_ID"`
 	WorkersCount int `env:"WORKERS_COUNT"`
 }
 
@@ -28,6 +30,7 @@ func (s *ServerConfig) Flags() *ServerConfig {
 	flag.StringVar(&s.Address, "a", s.Address, "Host address")
 	flag.StringVar(&s.Accrual, "r", s.Accrual, "Accrual address")
 	flag.StringVar(&s.Database, "d", s.Database, "Database DSN")
+	flag.BoolVar(&s.DBRefresh, "dbr", s.DBRefresh, "Refresh database")
 	flag.BoolVar(&s.Debug, "debug", s.Debug, "Debug mode")
 	flag.IntVar(&s.WorkersCount, "w", s.WorkersCount, "Num of workers")
 	flag.Parse()
@@ -49,7 +52,9 @@ func NewServerConfig() *ServerConfig {
 		Address:      "127.0.0.1:8000",
 		Accrual:      "127.0.0.1:8080",
 		Database:     "postgresql://fedoroko@localhost/gophermart",
-		Debug:        true,
+		DBRefresh:    false,
+		Debug:        false,
+		InstanceID:   1,
 		WorkersCount: 2,
 	}
 }

@@ -1,11 +1,13 @@
 package withdrawals
 
 import (
-	"github.com/fedoroko/gophermart/internal/users"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/fedoroko/gophermart/internal/users"
 )
 
 func floatToPointer(f float64) *float64 {

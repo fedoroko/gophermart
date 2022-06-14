@@ -3,19 +3,18 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
-	"github.com/fedoroko/gophermart/internal/accrual"
-	"github.com/fedoroko/gophermart/internal/withdrawals"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/fedoroko/gophermart/internal/accrual"
 	"github.com/fedoroko/gophermart/internal/config"
 	"github.com/fedoroko/gophermart/internal/controllers"
 	"github.com/fedoroko/gophermart/internal/orders"
 	"github.com/fedoroko/gophermart/internal/storage"
 	"github.com/fedoroko/gophermart/internal/users"
+	"github.com/fedoroko/gophermart/internal/withdrawals"
 )
 
 type handler struct {
@@ -46,7 +45,7 @@ func (h *handler) LoginFunc(c *gin.Context) {
 		case errors.As(err, &users.BadFormatError):
 			c.AbortWithStatusJSON(http.StatusBadRequest, err.Error())
 		default:
-			h.logger.Error().Stack().Err(err).Send()
+			h.logger.Error().Caller().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 		return
@@ -68,7 +67,7 @@ func (h *handler) RegisterFunc(c *gin.Context) {
 		case errors.As(err, &users.BadFormatError):
 			c.AbortWithStatusJSON(http.StatusBadRequest, err.Error())
 		default:
-			h.logger.Error().Stack().Err(err).Send()
+			h.logger.Error().Caller().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 		return
@@ -117,14 +116,13 @@ func (h *handler) OrderFunc(c *gin.Context) {
 		case errors.As(err, &orders.BelongsToAnotherError):
 			c.AbortWithStatusJSON(http.StatusConflict, err.Error())
 		default:
-			h.logger.Error().Stack().Err(err).Send()
+			h.logger.Error().Caller().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 		return
 	}
 
 	c.Status(http.StatusAccepted)
-
 }
 
 func (h *handler) OrdersFunc(c *gin.Context) {
@@ -132,9 +130,10 @@ func (h *handler) OrdersFunc(c *gin.Context) {
 	if !ok {
 		return
 	}
-	fmt.Println(s)
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
 	defer cancel()
+
 	data, err := h.ctrl.Orders(ctx, s.User())
 	if err != nil {
 		switch {
@@ -180,7 +179,7 @@ func (h *handler) WithdrawFunc(c *gin.Context) {
 		case errors.As(err, &withdrawals.NotEnoughBalanceError):
 			c.AbortWithStatusJSON(http.StatusPaymentRequired, err.Error())
 		default:
-			h.logger.Error().Stack().Err(err).Send()
+			h.logger.Error().Caller().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 		return
@@ -203,7 +202,7 @@ func (h *handler) WithdrawalsFunc(c *gin.Context) {
 		case errors.As(err, &withdrawals.NoRecordsError):
 			c.AbortWithStatus(http.StatusNoContent)
 		default:
-			h.logger.Error().Stack().Err(err).Send()
+			h.logger.Error().Caller().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 		return
@@ -230,6 +229,7 @@ func (h *handler) GetSessionHelper(c *gin.Context) (*users.Session, bool) {
 func (h *handler) ValidateContentType(c *gin.Context, t string) bool {
 	ct := c.GetHeader("Content-type")
 	if ct != t {
+		h.logger.Error().Msg("wrong content-type")
 		c.AbortWithStatus(http.StatusBadRequest)
 		return false
 	}

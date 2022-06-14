@@ -25,6 +25,8 @@ func ThrowWrongPairErr() *wrongPairErr {
 	return &wrongPairErr{}
 }
 
+//
+
 var AlreadyExistsError *alreadyExistsErr
 
 type alreadyExistsErr struct{}
@@ -36,6 +38,8 @@ func (e *alreadyExistsErr) Error() string {
 func ThrowAlreadyExistsErr() *alreadyExistsErr {
 	return &alreadyExistsErr{}
 }
+
+//
 
 var BadFormatError *badFormatErr
 
@@ -55,7 +59,7 @@ func ThrowBadFormatErr(f, r string) *badFormatErr {
 	}
 }
 
-// TempUser DB input
+// TempUser DB input with public fields
 type TempUser struct {
 	ID        *int64
 	Login     string `json:"login"`
@@ -94,10 +98,8 @@ func (t *TempUser) GenerateToken() string {
 }
 
 func (t TempUser) Commit() *User {
-	var id int64
-	if t.ID == nil {
-		id = 0
-	} else {
+	var id int64 = 0
+	if t.ID != nil {
 		id = *t.ID
 	}
 	return &User{
@@ -140,7 +142,7 @@ func validate(l, p string) error {
 	return nil
 }
 
-// TempSession DB helper struct
+// TempSession DB input with public fields
 type TempSession struct {
 	Token  string
 	User   *User

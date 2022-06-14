@@ -3,13 +3,13 @@ package orders
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/fedoroko/gophermart/internal/validation"
 	"io"
 	"io/ioutil"
 	"strconv"
 	"time"
 
 	"github.com/fedoroko/gophermart/internal/users"
+	"github.com/fedoroko/gophermart/internal/validation"
 )
 
 type Order struct {
@@ -18,10 +18,6 @@ type Order struct {
 	Status     int         `json:"-"`
 	Accrual    *float64    `json:"accrual,omitempty"`
 	UploadedAt time.Time   `json:"-"`
-}
-
-func (o *Order) Process() error {
-	return nil
 }
 
 func (o *Order) MarshalJSON() ([]byte, error) {

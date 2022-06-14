@@ -3,10 +3,6 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"github.com/fedoroko/gophermart/internal/middlewares"
-	"github.com/fedoroko/gophermart/internal/orders"
-	"github.com/fedoroko/gophermart/internal/withdrawals"
-	"github.com/rs/zerolog"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -16,13 +12,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fedoroko/gophermart/internal/config"
+	"github.com/fedoroko/gophermart/internal/middlewares"
 	"github.com/fedoroko/gophermart/internal/mocks"
+	"github.com/fedoroko/gophermart/internal/orders"
 	"github.com/fedoroko/gophermart/internal/storage"
 	"github.com/fedoroko/gophermart/internal/users"
+	"github.com/fedoroko/gophermart/internal/withdrawals"
 )
 
 func SetUpRouter() *gin.Engine {

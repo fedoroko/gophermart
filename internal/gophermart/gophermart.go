@@ -1,7 +1,7 @@
 package gophermart
 
 import (
-	"github.com/fedoroko/gophermart/internal/accrual"
+	"context"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/fedoroko/gophermart/internal/accrual"
 	"github.com/fedoroko/gophermart/internal/config"
 	"github.com/fedoroko/gophermart/internal/handlers"
 	"github.com/fedoroko/gophermart/internal/middlewares"
@@ -27,7 +28,7 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	defer q.Close()
 	go func() {
 		if err = q.Listen(); err != nil {
-			logger.Error().Stack().Err(err).Send()
+			logger.Error().Caller().Stack().Err(err).Send()
 		}
 	}()
 
@@ -40,8 +41,8 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	defer server.Close()
 	go func() {
 		logger.Info().Msg("Server started at " + cfg.Address)
-		if err := server.ListenAndServe(); err != nil {
-			logger.Error().Stack().Err(err).Send()
+		if err = server.ListenAndServe(); err != nil {
+			logger.Error().Caller().Stack().Err(err).Msg("server error")
 		}
 	}()
 
@@ -52,6 +53,17 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 		syscall.SIGQUIT,
 	)
 	<-sig
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err = server.Shutdown(ctx); err != nil {
+		logger.Error().Err(err).Msg("server shutdown err")
+	}
+
+	select {
+	case <-ctx.Done():
+		logger.Warn().Msg("server shutdown 5s timeout")
+	}
 }
 
 func router(db storage.Repo, q accrual.Queue, logger *config.Logger) *gin.Engine {
@@ -60,12 +72,13 @@ func router(db storage.Repo, q accrual.Queue, logger *config.Logger) *gin.Engine
 	r.Use(gin.Recovery())
 	r.Use(middlewares.InstanceID(1))
 	r.Use(middlewares.RateLimit())
+	r.Use(middlewares.StatCollector())
 
 	h := handlers.Handler(db, q, logger, time.Second*30)
-	r.GET("/ping", h.Ping)
 	authBasic := middlewares.AuthBasic(db, logger)
 	authWithBalance := middlewares.AuthWithBalance(db, logger)
 
+	r.GET("/ping", h.Ping)
 	api := r.Group("api/user")
 	{
 		api.POST("/login", h.LoginFunc)

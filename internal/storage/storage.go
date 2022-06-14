@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"github.com/fedoroko/gophermart/internal/withdrawals"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/fedoroko/gophermart/internal/config"
 	"github.com/fedoroko/gophermart/internal/orders"
 	"github.com/fedoroko/gophermart/internal/users"
+	"github.com/fedoroko/gophermart/internal/withdrawals"
 )
 
 //go:generate mockgen -destination=../mocks/mock_doer.go -package=mocks github.com/fedoroko/gophermart/internal/storage Repo
@@ -27,6 +27,7 @@ type Repo interface {
 
 	OrderCreate(context.Context, *orders.Order) error
 	OrdersUpdate(context.Context, []*orders.Order) error
+	OrdersRestore(context.Context) ([]*orders.Order, error)
 	WithdrawalCreate(context.Context, *withdrawals.Withdrawal) error
 
 	Close() error
@@ -160,6 +161,7 @@ func (p *postgres) UserOrders(ctx context.Context, user *users.User) ([]*orders.
 	}
 
 	if err = rows.Err(); err != nil {
+		p.logger.Error().Caller().Err(err).Send()
 		return ors, err
 	}
 	return ors, nil
@@ -191,18 +193,11 @@ func (p *postgres) UserWithdrawals(ctx context.Context, user *users.User) ([]*wi
 	}
 
 	if err = rows.Err(); err != nil {
+		p.logger.Error().Caller().Err(err).Send()
 		return nil, err
 	}
 
-	if len(wrs) == 0 {
-		return nil, withdrawals.ThrowNoRecordsErr()
-	}
 	return wrs, nil
-}
-
-func (p *postgres) SessionCreate(ctx context.Context, user *users.User) (*users.Session, error) {
-
-	return nil, nil
 }
 
 func (p *postgres) SessionCheck(ctx context.Context, token string) (*users.Session, error) {
@@ -349,6 +344,32 @@ func (p *postgres) OrdersUpdate(ctx context.Context, ors []*orders.Order) error 
 	return nil
 }
 
+func (p *postgres) OrdersRestore(ctx context.Context) ([]*orders.Order, error) {
+	rows, err := p.DB.QueryContext(ctx, ordersRestoreQuery)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			err = orders.ThrowNoItemsErr()
+		}
+		return nil, err
+	}
+
+	var ors []*orders.Order
+	for rows.Next() {
+		o := &orders.Order{}
+		if err = rows.Scan(&o.Number, &o.Status, &o.UploadedAt); err != nil {
+			return ors, nil
+		}
+
+		ors = append(ors, o)
+	}
+
+	if err = rows.Err(); err != nil {
+		return ors, err
+	}
+
+	return ors, nil
+}
+
 func (p *postgres) WithdrawalCreate(ctx context.Context, w *withdrawals.Withdrawal) error {
 	_, err := p.stmt.withdrawalCreate.ExecContext(ctx, w.Order, w.User.ID(), w.Sum, w.UploadedAt)
 	if err != nil {
@@ -408,10 +429,18 @@ func Postgres(cfg *config.ServerConfig, logger *config.Logger) (Repo, error) {
 	db.SetConnMaxIdleTime(time.Second * 30)
 	db.SetConnMaxLifetime(time.Minute * 2)
 
+	if cfg.DBRefresh {
+		logger.Debug().Msg("refreshing db")
+		_, err = db.Exec(dropTables)
+		if err != nil {
+			logger.Debug().Err(err).Msg("refreshing failed")
+		}
+	}
+
 	_, err = db.Exec(schema)
 	if err != nil {
-		logger.Debug().Err(err).Send()
 		if !strings.Contains(err.Error(), "already exists") {
+			logger.Error().Caller().Err(err).Send()
 			panic(err)
 		}
 	}
