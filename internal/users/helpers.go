@@ -131,8 +131,8 @@ func FromJSON(body io.Reader) (*TempUser, error) {
 }
 
 func validate(l, p string) error {
-	if len(strings.TrimSpace(l)) < 6 {
-		return ThrowBadFormatErr("login", "should be at least 6 symbols len")
+	if len(strings.TrimSpace(l)) < 4 {
+		return ThrowBadFormatErr("login", "should be at least 4 symbols len")
 	}
 
 	if len(strings.TrimSpace(p)) < 6 {
