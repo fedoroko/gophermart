@@ -32,18 +32,19 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	}()
 
 	r := router(db, q, logger)
-	server := &http.Server{
-		Addr:    "localhost:8080",
-		Handler: r,
-	}
-
-	defer server.Close()
-	go func() {
-		logger.Info().Msg("Server started at " + cfg.Address)
-		if err = server.ListenAndServe(); err != nil {
-			logger.Error().Stack().Err(err).Send()
-		}
-	}()
+	http.ListenAndServe("localhost:8080", r)
+	//server := &http.Server{
+	//	Addr:    "localhost:8080",
+	//	Handler: r,
+	//}
+	//
+	//defer server.Close()
+	//go func() {
+	//	logger.Info().Msg("Server started at " + cfg.Address)
+	//	if err = server.ListenAndServe(); err != nil {
+	//		logger.Error().Stack().Err(err).Send()
+	//	}
+	//}()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig,
