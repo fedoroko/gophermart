@@ -103,7 +103,7 @@ func (w *worker) postRequest(o *orders.Order) error {
 		o.Status = 2
 		return nil
 	default:
-		o.Status = 4
+		o.Status = 2
 		return nil
 	}
 }
