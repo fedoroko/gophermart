@@ -52,6 +52,7 @@ func (q *queue) Listen() error {
 		go w.run(&wg)
 	}
 
+	time.Sleep(time.Second)
 	go q.poster.listen()
 	go q.checker.listen()
 
