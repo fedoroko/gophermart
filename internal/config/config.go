@@ -28,7 +28,7 @@ func (s *ServerConfig) Flags() *ServerConfig {
 	flag.StringVar(&s.Address, "a", s.Address, "Host address")
 	flag.StringVar(&s.Accrual, "r", s.Accrual, "Accrual address")
 	flag.StringVar(&s.Database, "d", s.Database, "Database DSN")
-	flag.BoolVar(&s.Debug, "debug", false, "Debug mode")
+	flag.BoolVar(&s.Debug, "debug", s.Debug, "Debug mode")
 	flag.IntVar(&s.WorkersCount, "w", s.WorkersCount, "Num of workers")
 	flag.Parse()
 
@@ -49,6 +49,7 @@ func NewServerConfig() *ServerConfig {
 		Address:      "127.0.0.1:8000",
 		Accrual:      "127.0.0.1:8080",
 		Database:     "postgresql://fedoroko@localhost/gophermart",
+		Debug:        true,
 		WorkersCount: 2,
 	}
 }

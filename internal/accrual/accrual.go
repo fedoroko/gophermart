@@ -3,7 +3,6 @@ package accrual
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"github.com/fedoroko/gophermart/internal/config"
 	"github.com/fedoroko/gophermart/internal/orders"
@@ -86,16 +85,11 @@ func (q *queue) setUpAccrual(address string) {
 	res, err := http.Post(address, "application/json", reqBody)
 	if err != nil {
 		q.logger.Error().Err(err).Send()
-		//panic(err)
 	}
 
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		q.logger.Error().Msg(fmt.Sprintf("accrual setup failed, status code :%d", res.StatusCode))
-		if res.StatusCode != http.StatusConflict {
-			panic(errors.New("accrual setup failed"))
-		}
-
 	}
 	q.logger.Info().Msg("accrual setup: SUCCESS")
 }
