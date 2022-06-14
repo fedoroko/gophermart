@@ -22,15 +22,15 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	}
 	defer db.Close()
 
-	q := accrual.NewQueue(cfg, db, logger)
-	defer q.Close()
-	go func() {
-		if err = q.Listen(); err != nil {
-			logger.Error().Stack().Err(err).Send()
-		}
-	}()
+	//q := accrual.NewQueue(cfg, db, logger)
+	//defer q.Close()
+	//go func() {
+	//	if err = q.Listen(); err != nil {
+	//		logger.Error().Stack().Err(err).Send()
+	//	}
+	//}()
 
-	r := router(db, q, logger)
+	r := router(db, nil, logger)
 	server := &http.Server{
 		Addr:    "localhost:8080",
 		Handler: r,
