@@ -86,7 +86,7 @@ func (q *queue) setUpAccrual(address string) {
 	res, err := http.Post(address, "application/json", reqBody)
 	if err != nil {
 		q.logger.Error().Err(err).Send()
-		panic(err)
+		//panic(err)
 	}
 
 	defer res.Body.Close()
