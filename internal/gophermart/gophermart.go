@@ -1,6 +1,7 @@
 package gophermart
 
 import (
+	"fmt"
 	"github.com/fedoroko/gophermart/internal/accrual"
 	"net/http"
 	"os"
@@ -31,8 +32,11 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 		}
 	}()
 
-	r := router(db, q, logger)
-	http.ListenAndServe("localhost:8080", r)
+	//r := router(db, q, logger)
+	hello := func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("hello")
+	}
+	http.ListenAndServe("localhost:8080", http.HandlerFunc(hello))
 	//server := &http.Server{
 	//	Addr:    "localhost:8080",
 	//	Handler: r,
