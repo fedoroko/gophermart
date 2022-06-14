@@ -60,10 +60,8 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 		logger.Error().Err(err).Msg("server shutdown err")
 	}
 
-	select {
-	case <-ctx.Done():
-		logger.Warn().Msg("server shutdown 5s timeout")
-	}
+	<-ctx.Done()
+	logger.Warn().Msg("server shutdown 5s timeout")
 }
 
 func router(db storage.Repo, q accrual.Queue, logger *config.Logger) *gin.Engine {
