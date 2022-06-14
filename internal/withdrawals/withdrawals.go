@@ -2,7 +2,6 @@ package withdrawals
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/fedoroko/gophermart/internal/validation"
 	"io"
 	"io/ioutil"
@@ -63,7 +62,7 @@ func (w *Withdrawal) UnmarshalJSON(data []byte) error {
 
 	err := json.Unmarshal(data, &raw)
 	if err != nil {
-		return err
+		return ThrowInvalidNumberErr()
 	}
 
 	order, err := strconv.ParseInt(raw.Order, 10, 64)
@@ -89,15 +88,15 @@ func FromJSON(user *users.User, body io.Reader) (*Withdrawal, error) {
 	}
 
 	err = json.Unmarshal(b, &w)
+
 	if err != nil {
-		return nil, err
+		return nil, ThrowInvalidNumberErr()
 	}
 
 	if !validation.IsValid(w.Order) {
 		return nil, ThrowInvalidNumberErr()
 	}
 
-	fmt.Println(*user.Balance)
 	if user.Balance == nil || *user.Balance < w.Sum {
 		return nil, ThrowNotEnoughBalanceErr()
 	}

@@ -19,10 +19,6 @@ type Order struct {
 	UploadedAt time.Time   `json:"-"`
 }
 
-func (o *Order) Process() error {
-	return nil
-}
-
 func (o *Order) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
 		Number     int64    `json:"number"`

@@ -141,6 +141,7 @@ func (h *handler) OrdersFunc(c *gin.Context) {
 			h.logger.Error().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
+		return
 	}
 
 	c.JSON(http.StatusOK, data)
@@ -201,6 +202,7 @@ func (h *handler) WithdrawalsFunc(c *gin.Context) {
 			h.logger.Error().Stack().Err(err).Send()
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
+		return
 	}
 
 	c.JSON(http.StatusOK, data)
