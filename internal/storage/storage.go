@@ -66,7 +66,7 @@ func (p *postgres) UserExists(ctx context.Context, user *users.TempUser) (*users
 		return nil, err
 	}
 
-	if u.ConfirmPassword(user) == false {
+	if !u.ConfirmPassword(user) {
 		if rollErr := tx.Rollback(); rollErr != nil {
 			p.logger.Error().Stack().Err(rollErr).Send()
 		}
@@ -136,6 +136,7 @@ func (p *postgres) UserCreate(ctx context.Context, user *users.TempUser) (*users
 func (p *postgres) UserOrders(ctx context.Context, user *users.User) ([]*orders.Order, error) {
 	var ors []*orders.Order
 	rows, err := p.stmt.userOrders.QueryContext(ctx, user.ID())
+
 	if err != nil {
 		if strings.Contains(err.Error(), "no rows") {
 			err = orders.ThrowNoItemsErr()
@@ -209,8 +210,10 @@ func (p *postgres) SessionCheck(ctx context.Context, token string) (*users.Sessi
 	s := users.TempSession{
 		Token: token,
 	}
+
 	err := p.stmt.sessionCheck.QueryRowContext(ctx, token).
 		Scan(&u.ID, &u.Login, &u.LastLogin, &s.Expire)
+
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +288,7 @@ func (p *postgres) OrderCreate(ctx context.Context, order *orders.Order) error {
 	err = tx.QueryRowContext(ctx, orderExistsQuery, order.Number).
 		Scan(&existID)
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows") {
+		if !strings.Contains(err.Error(), "no rows") {
 			if rollErr := tx.Rollback(); rollErr != nil {
 				p.logger.Error().Stack().Err(rollErr).Send()
 			}

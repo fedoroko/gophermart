@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/fedoroko/gophermart/internal/accrual"
 	"github.com/fedoroko/gophermart/internal/withdrawals"
 	"net/http"
@@ -132,7 +132,7 @@ func (h *handler) OrdersFunc(c *gin.Context) {
 	if !ok {
 		return
 	}
-
+	fmt.Println(s)
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
 	defer cancel()
 	data, err := h.ctrl.Orders(ctx, s.User())
@@ -147,9 +147,6 @@ func (h *handler) OrdersFunc(c *gin.Context) {
 		return
 	}
 
-	ret, _ := json.Marshal(data)
-	h.logger.Debug().Interface("data", string(ret)).Send()
-	h.logger.Debug().Interface("data", string(ret)).Send()
 	c.JSON(http.StatusOK, data)
 }
 
