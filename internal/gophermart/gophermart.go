@@ -33,7 +33,7 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 
 	r := router(db, q, logger)
 	server := &http.Server{
-		Addr:    cfg.Address,
+		Addr:    "localhost:8080",
 		Handler: r,
 	}
 

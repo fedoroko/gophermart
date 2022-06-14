@@ -2,15 +2,13 @@ package main
 
 import (
 	"fmt"
-	"time"
-
 	"github.com/fedoroko/gophermart/internal/config"
 	"github.com/fedoroko/gophermart/internal/gophermart"
 )
 
 func main() {
 	fmt.Println("server started !!!!!!")
-	time.Sleep(time.Second * 5)
+	//time.Sleep(time.Second * 5)
 	fmt.Println("server started @@@@")
 	cfg := config.NewServerConfig().Env().Flags()
 	logger := cfg.GetLogger()
