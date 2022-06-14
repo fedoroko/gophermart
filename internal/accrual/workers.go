@@ -56,7 +56,9 @@ func (w *worker) run(wg *sync.WaitGroup) {
 }
 
 func (w *worker) post(o *orders.Order) {
+	w.logger.Debug().Msg(fmt.Sprintf("worker %d: post func", w.id))
 	if err := w.postRequest(o); err != nil {
+		w.logger.Debug().Interface("err", err).Msg(fmt.Sprintf("worker %d: post func err", w.id))
 		if errors.As(err, &TooManyRequestsError) {
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: too many request, sleep for 30s", w.id))
 			w.chs.rateLimit <- struct{}{}
@@ -71,6 +73,7 @@ func (w *worker) post(o *orders.Order) {
 }
 
 func (w *worker) postRequest(o *orders.Order) error {
+	w.logger.Debug().Msg("trying to post")
 	s := fmt.Sprintf(
 		`{ "order": "%d", "goods": [ { "description": "LG product", "price": 50000.0 } ] }`, o.Number,
 	)
