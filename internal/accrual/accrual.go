@@ -349,7 +349,7 @@ func NewQueue(cfg *config.ServerConfig, db storage.Repo, logger *config.Logger) 
 		logger:    config.NewLogger(&subLogger),
 	}
 
-	q.setUpAccrual(cfg.Accrual)
+	//q.setUpAccrual(cfg.Accrual)
 	chs := wChans{
 		quit:      quit,
 		rateLimit: rateLimit,
