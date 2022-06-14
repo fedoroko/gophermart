@@ -72,7 +72,7 @@ func (w *worker) post(o *orders.Order) {
 
 func (w *worker) postRequest(o *orders.Order) error {
 	s := fmt.Sprintf(
-		`{ "order": "%d", "goods": [ { "description": "GO product", "price": 50000.0 } ] }`, o.Number,
+		`{ "order": "%d", "goods": [ { "description": "LG product", "price": 50000.0 } ] }`, o.Number,
 	)
 
 	reqBody := bytes.NewBuffer([]byte(s))

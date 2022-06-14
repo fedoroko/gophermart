@@ -79,12 +79,13 @@ func (q *queue) Close() error {
 
 func (q *queue) setUpAccrual(address string) {
 	address = fmt.Sprintf("http://%s/api/goods", address)
-	body := []byte(`{ "match": "GO", "reward": 7, "reward_type": "%" }`)
+	body := []byte(`{ "match": "LG", "reward": 7, "reward_type": "%" }`)
 	reqBody := bytes.NewBuffer(body)
 
 	res, err := http.Post(address, "application/json", reqBody)
 	if err != nil {
 		q.logger.Error().Err(err).Send()
+		return
 	}
 
 	defer res.Body.Close()
