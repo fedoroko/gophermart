@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"github.com/fedoroko/gophermart/internal/withdrawals"
 	"strings"
 	"time"
@@ -313,7 +312,6 @@ func (p *postgres) OrderCreate(ctx context.Context, order *orders.Order) error {
 }
 
 func (p *postgres) OrdersUpdate(ctx context.Context, ors []*orders.Order) error {
-	fmt.Println(ors, "HEYAAA")
 	tx, err := p.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err

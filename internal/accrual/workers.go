@@ -1,7 +1,6 @@
 package accrual
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"github.com/fedoroko/gophermart/internal/orders"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -72,17 +72,24 @@ func (w *worker) post(o *orders.Order) {
 	w.logger.Debug().Msg(fmt.Sprintf("worker %d: post done", w.id))
 }
 
+type data struct {
+	Order int64 `json:"order"`
+	Goods struct {
+		Description string  `json:"description"`
+		Price       float64 `json:"price"`
+	}
+}
+
 func (w *worker) postRequest(o *orders.Order) error {
-	w.logger.Debug().Msg("trying to post")
 	s := fmt.Sprintf(
 		`{ "order": "%d", "goods": [ { "description": "LG product", "price": 50000.0 } ] }`, o.Number,
 	)
 
-	reqBody := bytes.NewBuffer([]byte(s))
+	reqBody := strings.NewReader(s)
 	postAddress := fmt.Sprintf("%s/api/orders", w.address)
 
 	req, err := http.Post(postAddress, "application/json", reqBody)
-	w.logger.Debug().Interface("req", req).Interface("err", err).Send()
+	w.logger.Debug().Interface("err", err).Int("code", req.StatusCode).Send()
 	if err != nil {
 		return err
 	}
@@ -133,9 +140,10 @@ func statusEncode(status string) int {
 }
 
 func (w *worker) checkRequest(o *orders.Order) error {
-	getAddress := fmt.Sprintf("http://%s/api/orders/%d", w.address, o.Number)
+	getAddress := fmt.Sprintf("%s/api/orders/%d", w.address, o.Number)
 
 	req, err := http.Get(getAddress)
+	w.logger.Debug().Interface("err", err).Int("code", req.StatusCode).Send()
 	if err != nil {
 		return err
 	}

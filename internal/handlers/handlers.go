@@ -148,7 +148,8 @@ func (h *handler) OrdersFunc(c *gin.Context) {
 	}
 
 	ret, _ := json.Marshal(data)
-	h.logger.Debug().Interface("data", string(ret))
+	h.logger.Debug().Interface("data", string(ret)).Send()
+	h.logger.Debug().Interface("data", string(ret)).Send()
 	c.JSON(http.StatusOK, data)
 }
 
