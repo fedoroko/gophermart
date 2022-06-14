@@ -8,8 +8,8 @@ import (
 type User struct {
 	id        int64
 	login     string
-	Balance   *float64 `json:"current,omitempty"`
-	Withdrawn *float64 `json:"withdrawn,omitempty"`
+	Balance   *float64 `json:"current"`
+	Withdrawn *float64 `json:"withdrawn"`
 	lastLogin *time.Time
 }
 
