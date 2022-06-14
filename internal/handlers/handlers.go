@@ -155,7 +155,6 @@ func (h *handler) BalanceFunc(c *gin.Context) {
 		return
 	}
 
-	h.logger.Debug().Interface("balance", s.User().Balance).Send()
 	c.JSON(http.StatusOK, s.User())
 }
 

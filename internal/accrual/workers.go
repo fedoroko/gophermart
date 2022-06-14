@@ -155,7 +155,7 @@ func (w *worker) checkRequest(o *orders.Order) error {
 		if err = json.Unmarshal(resBody, &data); err != nil {
 			return err
 		}
-		w.logger.Debug().Caller().Interface("WORKER CHECKED", data).Send()
+
 		o.Status = statusEncode(data.Status)
 		o.Accrual = data.Accrual
 

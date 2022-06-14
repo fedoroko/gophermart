@@ -329,7 +329,6 @@ func (p *postgres) OrdersUpdate(ctx context.Context, ors []*orders.Order) error 
 	p.logger.Debug().Msg("orders_update transaction prepared")
 
 	for _, o := range ors {
-		p.logger.Debug().Caller().Interface("O R D E R", o).Send()
 		if _, err = stmt.ExecContext(ctx, o.Status, o.Accrual); err != nil {
 			if rollErr := tx.Rollback(); rollErr != nil {
 				p.logger.Error().Stack().Err(rollErr).Send()
