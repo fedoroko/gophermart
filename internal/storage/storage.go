@@ -257,7 +257,7 @@ func (p *postgres) SessionBalanceCheck(ctx context.Context, token string) (*user
 	err = tx.QueryRowContext(ctx, withdrawalsAmountQuery, u.ID).
 		Scan(&u.Withdrawn)
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows") {
+		if !strings.Contains(err.Error(), "no rows") {
 			if rollErr := tx.Rollback(); rollErr != nil {
 				p.logger.Error().Stack().Err(rollErr).Send()
 			}
