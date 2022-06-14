@@ -23,13 +23,13 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	//}
 	//defer db.Close()
 	//
-	//q := accrual.NewQueue(cfg, db, logger)
-	//defer q.Close()
-	//go func() {
-	//	if err = q.Listen(); err != nil {
-	//		logger.Error().Stack().Err(err).Send()
-	//	}
-	//}()
+	q := accrual.NewQueue(cfg, nil, logger)
+	defer q.Close()
+	go func() {
+		if err := q.Listen(); err != nil {
+			logger.Error().Stack().Err(err).Send()
+		}
+	}()
 
 	r := router(nil, nil, logger)
 	server := &http.Server{
