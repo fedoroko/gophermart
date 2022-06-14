@@ -79,6 +79,7 @@ func (w *worker) postRequest(o *orders.Order) error {
 	postAddress := fmt.Sprintf("http://%s/api/orders", w.address)
 
 	req, err := http.Post(postAddress, "application/json", reqBody)
+	w.logger.Debug().Interface("req", req).Interface("err", err).Send()
 	if err != nil {
 		return err
 	}
