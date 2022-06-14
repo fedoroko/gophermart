@@ -81,7 +81,7 @@ func (c *controller) Order(ctx context.Context, u *users.User, body io.Reader) e
 		c.logger.Debug().Caller().Err(err).Msg("failed to parse order")
 		return err
 	}
-
+	c.logger.Debug().Caller().Interface("ORDER PARSED", o).Send()
 	err = c.r.OrderCreate(ctx, o)
 	if err != nil {
 		c.logger.Debug().Caller().Err(err).Msg("db conflict")
