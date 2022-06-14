@@ -23,7 +23,7 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	}
 	defer db.Close()
 
-	q := accrual.NewQueue(cfg, nil, logger)
+	q := accrual.NewQueue(cfg, db, logger)
 	defer q.Close()
 	go func() {
 		if err = q.Listen(); err != nil {
