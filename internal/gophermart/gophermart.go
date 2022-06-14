@@ -17,21 +17,21 @@ import (
 )
 
 func Run(cfg *config.ServerConfig, logger *config.Logger) {
-	db, err := storage.Postgres(cfg, logger)
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
+	//db, err := storage.Postgres(cfg, logger)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//defer db.Close()
+	//
+	//q := accrual.NewQueue(cfg, db, logger)
+	//defer q.Close()
+	//go func() {
+	//	if err = q.Listen(); err != nil {
+	//		logger.Error().Stack().Err(err).Send()
+	//	}
+	//}()
 
-	q := accrual.NewQueue(cfg, db, logger)
-	defer q.Close()
-	go func() {
-		if err = q.Listen(); err != nil {
-			logger.Error().Stack().Err(err).Send()
-		}
-	}()
-
-	r := router(db, q, logger)
+	r := router(nil, nil, logger)
 	server := &http.Server{
 		Addr:    cfg.Address,
 		Handler: r,
@@ -40,7 +40,7 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	defer server.Close()
 	go func() {
 		logger.Info().Msg("Server started at " + cfg.Address)
-		if err = server.ListenAndServe(); err != nil {
+		if err := server.ListenAndServe(); err != nil {
 			logger.Error().Stack().Err(err).Send()
 		}
 	}()

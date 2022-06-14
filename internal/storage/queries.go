@@ -1,13 +1,7 @@
 package storage
 
 const (
-	schema = `	
-				//DROP TABLE users;
-				//DROP TABLE sessions;
-				//DROP TABLE orders;
-				//DROP TABLE withdrawals;
-
-
+	schema = `
 				CREATE TABLE users (
 					id serial PRIMARY KEY,
 					login VARCHAR (50) UNIQUE NOT NULL,
