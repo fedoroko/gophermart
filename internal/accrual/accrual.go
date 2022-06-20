@@ -346,7 +346,7 @@ func NewQueue(cfg *config.ServerConfig, db storage.Repo, logger *config.Logger) 
 		logger:    config.NewLogger(&subLogger),
 	}
 
-	q.setUpAccrual(cfg.Accrual) // с настройкой не проходит тесты
+	//q.setUpAccrual(cfg.Accrual) // с настройкой не проходит тесты
 	chs := wChans{
 		quit:      quit,
 		rateLimit: rateLimit,
