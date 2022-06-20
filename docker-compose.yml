@@ -1,6 +1,7 @@
 version: "3.9"
 services:
   db:
+    container_name: "gophermart_postgres"
     image: postgres
     restart: always
     environment:
@@ -32,7 +33,7 @@ services:
         condition: service_healthy
       accrual:
         condition: service_started
-    command: sh -c "./gophermart"
+    command: sh -c "./gophermart -dbr"
     healthcheck:
       test: [ "CMD-SHELL", "curl", "-f", "http://localhost:8000/ping" ]
       interval: 1s

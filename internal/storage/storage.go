@@ -139,9 +139,6 @@ func (p *postgres) UserOrders(ctx context.Context, user *users.User) ([]*orders.
 	rows, err := p.stmt.userOrders.QueryContext(ctx, user.ID())
 
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows") {
-			err = orders.ThrowNoItemsErr()
-		}
 		return nil, err
 	}
 
@@ -164,15 +161,17 @@ func (p *postgres) UserOrders(ctx context.Context, user *users.User) ([]*orders.
 		p.logger.Error().Caller().Err(err).Send()
 		return ors, err
 	}
+
+	if len(ors) == 0 {
+		return nil, orders.ThrowNoItemsErr()
+	}
+
 	return ors, nil
 }
 
 func (p *postgres) UserWithdrawals(ctx context.Context, user *users.User) ([]*withdrawals.Withdrawal, error) {
 	rows, err := p.stmt.userWithdrawals.QueryContext(ctx, user.ID())
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows") {
-			err = orders.ThrowNoItemsErr()
-		}
 		return nil, err
 	}
 
@@ -195,6 +194,10 @@ func (p *postgres) UserWithdrawals(ctx context.Context, user *users.User) ([]*wi
 	if err = rows.Err(); err != nil {
 		p.logger.Error().Caller().Err(err).Send()
 		return nil, err
+	}
+
+	if len(wrs) == 0 {
+		return nil, withdrawals.ThrowNoRecordsErr()
 	}
 
 	return wrs, nil
