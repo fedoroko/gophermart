@@ -253,12 +253,9 @@ func (c *checker) listen() error {
 		case o := <-c.toWrite:
 			c.handleOrderStatus(o)
 		case <-ticker.C:
-			c.logger.Debug().Msg("flushing by ticker")
 			c.flush()
 		case <-c.quit:
-			c.logger.Debug().Msg("flushing by quit")
 			c.flush()
-			c.logger.Debug().Msg("poster: CLOSED")
 			return nil
 		default:
 			if len(c.processing) > 0 {
@@ -349,7 +346,7 @@ func NewQueue(cfg *config.ServerConfig, db storage.Repo, logger *config.Logger) 
 		logger:    config.NewLogger(&subLogger),
 	}
 
-	//q.setUpAccrual(cfg.Accrual) // с настройкой не проходит тесты
+	q.setUpAccrual(cfg.Accrual) // с настройкой не проходит тесты
 	chs := wChans{
 		quit:      quit,
 		rateLimit: rateLimit,

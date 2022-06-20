@@ -11,8 +11,6 @@ COPY . .
 
 EXPOSE 8000
 
-ENV RUN_ADDRESS=:8000
-ENV ACCRUAL_SYSTEM_ADDRESS=:8080
-ENV DATABASE_URI=123
+RUN go build -o gophermart ./cmd/gophermart
 
 CMD ["/bin/bash"]
