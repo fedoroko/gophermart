@@ -22,8 +22,9 @@ type ServerConfig struct {
 	Database     string `env:"DATABASE_URI"`
 	DBRefresh    bool   `env:"DB_REFRESH"`
 	Debug        bool
-	InstanceID   int `env:"INSTANCE_ID"`
-	WorkersCount int `env:"WORKERS_COUNT"`
+	InstanceID   int    `env:"INSTANCE_ID"`
+	RabbitMQ     string `env:"RABBITMQ_URI"`
+	WorkersCount int    `env:"WORKERS_COUNT"`
 }
 
 func (s *ServerConfig) Flags() *ServerConfig {
@@ -32,6 +33,7 @@ func (s *ServerConfig) Flags() *ServerConfig {
 	flag.StringVar(&s.Database, "d", s.Database, "Database DSN")
 	flag.BoolVar(&s.DBRefresh, "dbr", s.DBRefresh, "Refresh database")
 	flag.BoolVar(&s.Debug, "debug", s.Debug, "Debug mode")
+	flag.StringVar(&s.RabbitMQ, "mq", s.RabbitMQ, "Rabbitmq DSN")
 	flag.IntVar(&s.WorkersCount, "w", s.WorkersCount, "Num of workers")
 	flag.Parse()
 

@@ -20,12 +20,26 @@ services:
     build: ./cmd/accrual
     ports:
       - "8080"
+  rabbitmq:
+    image: rabbitmq
+    container_name: "gophermart_rabbitmq"
+    ports:
+      - "5672"
+    volumes:
+      - ./rabbitmq/data:/var/lib/rabbitmq
+      - ./rabbitmq/log/:/var/log/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 10s
+      retries: 3
   server:
     build: .
     environment:
       - RUN_ADDRESS=:8000
       - ACCRUAL_SYSTEM_ADDRESS=http://accrual:8080
       - DATABASE_URI=postgresql://postgres:postgres@db:5432
+      - RABBITMQ_URI=amqp://guest:guest@rabbitmq:5672
     ports:
       - "8000:8000"
     depends_on:
@@ -33,6 +47,8 @@ services:
         condition: service_healthy
       accrual:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     command: sh -c "./gophermart -dbr"
     healthcheck:
       test: [ "CMD-SHELL", "curl", "-f", "http://localhost:8000/ping" ]

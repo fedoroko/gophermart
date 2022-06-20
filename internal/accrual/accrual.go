@@ -3,11 +3,14 @@ package accrual
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/streadway/amqp"
 
 	"github.com/fedoroko/gophermart/internal/config"
 	"github.com/fedoroko/gophermart/internal/orders"
@@ -114,10 +117,9 @@ func (q *queue) restore() error {
 
 	q.logger.Debug().Msg("restoring queue")
 
-	q.poster.poolMTX.Lock()
-	defer q.poster.poolMTX.Unlock()
-
-	q.poster.pool = append(q.poster.pool, ors...)
+	for _, o := range ors {
+		q.Push(o)
+	}
 	q.logger.Debug().Msg("queue restored")
 
 	return nil
@@ -131,69 +133,38 @@ func (q *queue) restore() error {
 // воркер отправляет заказ обратно постеру, где он снова возвращается в очередь,
 // но с повышенным приоритетом
 type poster struct {
-	quit      <-chan struct{}
-	toPost    chan<- *orders.Order // канал с новыми ордерами
-	toRepost  <-chan *orders.Order // канал с неудачными ордерами
-	pool      []*orders.Order      // хранилище новых ордеров
-	poolMTX   *sync.RWMutex
-	rePool    []*orders.Order // хранилище неудачных ордеров
-	rePoolMTX *sync.RWMutex
-	logger    *config.Logger
+	quit        <-chan struct{}
+	postQueue   rabbitQueue
+	toRepost    <-chan *orders.Order
+	repostQueue rabbitQueue
+	logger      *config.Logger
 }
 
 func (p *poster) push(o *orders.Order) {
-	p.poolMTX.Lock()
-	defer p.poolMTX.Unlock()
-
-	p.pool = append(p.pool, o)
-	p.logger.Debug().Msg("item pushed")
+	if err := p.postQueue.publish(o); err != nil {
+		p.logger.Error().Caller().Err(err).Send()
+	}
 }
 
 func (p *poster) rePush(o *orders.Order) {
-	p.rePoolMTX.Lock()
-	defer p.rePoolMTX.Unlock()
-
-	p.rePool = append(p.rePool, o)
-	p.logger.Debug().Msg("item repushed")
+	if err := p.repostQueue.publish(o); err != nil {
+		p.logger.Error().Caller().Err(err).Send()
+	}
 }
 
-func (p *poster) pop() *orders.Order {
-	if len(p.rePool) > 0 {
-		p.rePoolMTX.Lock()
-		defer p.rePoolMTX.Unlock()
-
-		o := p.rePool[0]
-		p.rePool = p.rePool[1:]
-		p.logger.Debug().Msg("item repoped")
-		return o
-	}
-	if len(p.pool) > 0 {
-		p.poolMTX.RLock()
-		defer p.poolMTX.RUnlock()
-
-		o := p.pool[0]
-		p.pool = p.pool[1:]
-		p.logger.Debug().Msg("item poped")
-		return o
-	}
-
-	return nil
-}
-
-func (p *poster) listen() error {
-	p.logger.Debug().Msg("poster: LISTENING")
+func (p *poster) listen() {
 	for {
 		select {
 		case o := <-p.toRepost:
 			p.rePush(o)
 		case <-p.quit:
-			p.logger.Debug().Msg("poster: CLOSED")
-			return nil
-		default:
-			o := p.pop()
-			if o != nil {
-				p.toPost <- o
+			if err := p.postQueue.close(); err != nil {
+				p.logger.Error().Caller().Err(err).Send()
 			}
+			if err := p.repostQueue.close(); err != nil {
+				p.logger.Error().Caller().Err(err).Send()
+			}
+			return
 		}
 	}
 }
@@ -210,9 +181,9 @@ func (p *poster) listen() error {
 type checker struct {
 	quit       <-chan struct{}
 	toWrite    <-chan *orders.Order // канал с проверенным оредрами от воркеров
-	toCheck    chan<- *orders.Order // канал с оредрами, которые необходимо проверить
-	processing []*orders.Order      // пулл отправленных заказов
-	processed  []*orders.Order      // пулл проверенных заказов
+	checkQueue rabbitQueue
+	processing []*orders.Order // пулл отправленных заказов
+	processed  []*orders.Order // пулл проверенных заказов
 	db         storage.Repo
 	logger     *config.Logger
 }
@@ -256,12 +227,17 @@ func (c *checker) listen() error {
 			c.flush()
 		case <-c.quit:
 			c.flush()
+			if err := c.checkQueue.close(); err != nil {
+				c.logger.Error().Caller().Err(err).Send()
+			}
 			return nil
 		default:
 			if len(c.processing) > 0 {
 				o := c.processing[0]
 				c.processing = c.processing[1:]
-				c.toCheck <- o
+				if err := c.checkQueue.publish(o); err != nil {
+					c.logger.Error().Caller().Err(err).Send()
+				}
 			}
 		}
 	}
@@ -293,33 +269,120 @@ func (c *checker) flush() error {
 	return nil
 }
 
-func newPoster(
-	quit <-chan struct{}, toPost chan<- *orders.Order, toRepost <-chan *orders.Order, logger *config.Logger) *poster {
-	subLogger := logger.With().Str("Component", "Poster").Logger()
-	return &poster{
-		quit:      quit,
-		toPost:    toPost,
-		toRepost:  toRepost,
-		pool:      []*orders.Order{},
-		poolMTX:   &sync.RWMutex{},
-		rePool:    []*orders.Order{},
-		rePoolMTX: &sync.RWMutex{},
-		logger:    config.NewLogger(&subLogger),
+type rabbitQueue struct {
+	conn *amqp.Connection
+	ch   *amqp.Channel
+	q    amqp.Queue
+	msgs <-chan amqp.Delivery
+}
+
+func (r *rabbitQueue) publish(o *orders.Order) error {
+	data, err := json.Marshal(o)
+	if err != nil {
+		return err
 	}
+
+	return r.ch.Publish(
+		"",       // exchange
+		r.q.Name, // routing key
+		false,    // mandatory
+		false,    // immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        data,
+		})
+}
+
+func (r *rabbitQueue) close() error {
+	if err := r.ch.Close(); err != nil {
+		return err
+	}
+
+	return r.conn.Close()
+}
+
+func newRabbitQueue(cfg *config.ServerConfig, name string) (*rabbitQueue, error) {
+	conn, err := amqp.Dial(cfg.RabbitMQ)
+	if err != nil {
+		return nil, err
+	}
+
+	ch, err := conn.Channel()
+	if err != nil {
+		return nil, err
+	}
+
+	q, err := ch.QueueDeclare(
+		name,  // name
+		false, // durable
+		false, // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
+	)
+
+	msgs, err := ch.Consume(
+		q.Name, // queue
+		"",     // consumer
+		true,   // auto-ack
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
+	)
+
+	return &rabbitQueue{
+		conn: conn,
+		ch:   ch,
+		q:    q,
+		msgs: msgs,
+	}, nil
+}
+
+func newPoster(
+	quit <-chan struct{}, toRepost chan *orders.Order, cfg *config.ServerConfig, logger *config.Logger) (*poster, error) {
+	subLogger := logger.With().Str("Component", "Poster").Logger()
+
+	postQueue, err := newRabbitQueue(cfg, "post")
+	if err != nil {
+		subLogger.Error().Caller().Err(err).Send()
+		return nil, err
+	}
+
+	repostQueue, err := newRabbitQueue(cfg, "repost")
+	if err != nil {
+		subLogger.Error().Caller().Err(err).Send()
+		return nil, err
+	}
+
+	return &poster{
+		quit:        quit,
+		postQueue:   *postQueue,
+		toRepost:    toRepost,
+		repostQueue: *repostQueue,
+		logger:      config.NewLogger(&subLogger),
+	}, err
 }
 
 func newChecker(
-	quit <-chan struct{}, toWrite <-chan *orders.Order, toCheck chan<- *orders.Order, db storage.Repo, logger *config.Logger) *checker {
+	quit <-chan struct{}, toWrite <-chan *orders.Order, cfg *config.ServerConfig,
+	db storage.Repo, logger *config.Logger) (*checker, error) {
 	subLogger := logger.With().Str("Component", "Checker").Logger()
+
+	checkQueue, err := newRabbitQueue(cfg, "check")
+	if err != nil {
+		subLogger.Error().Caller().Err(err).Send()
+		return nil, err
+	}
 	return &checker{
 		quit:       quit,
 		toWrite:    toWrite,
-		toCheck:    toCheck,
+		checkQueue: *checkQueue,
 		processing: make([]*orders.Order, 0, 1000),
 		processed:  make([]*orders.Order, 0, 1000),
 		db:         db,
 		logger:     config.NewLogger(&subLogger),
-	}
+	}, nil
 }
 
 func NewQueue(cfg *config.ServerConfig, db storage.Repo, logger *config.Logger) Queue {
@@ -328,13 +391,12 @@ func NewQueue(cfg *config.ServerConfig, db storage.Repo, logger *config.Logger) 
 	quit := make(chan struct{})
 	rateLimit := make(chan struct{})
 	sleep := make(chan struct{})
-	toPost := make(chan *orders.Order, 1000)
+
 	toRepost := make(chan *orders.Order, 1000)
 	toWrite := make(chan *orders.Order, 1000)
-	toCheck := make(chan *orders.Order, 1000)
 
-	p := newPoster(quit, toPost, toRepost, logger)
-	c := newChecker(quit, toWrite, toCheck, db, logger)
+	p, _ := newPoster(quit, toRepost, cfg, logger)
+	c, _ := newChecker(quit, toWrite, cfg, db, logger)
 
 	q := &queue{
 		quit:      quit,
@@ -348,13 +410,14 @@ func NewQueue(cfg *config.ServerConfig, db storage.Repo, logger *config.Logger) 
 
 	//q.setUpAccrual(cfg.Accrual) // с настройкой не проходит тесты
 	chs := wChans{
-		quit:      quit,
-		rateLimit: rateLimit,
-		sleep:     sleep,
-		toPost:    toPost,
-		toRepost:  toRepost,
-		toWrite:   toWrite,
-		toCheck:   toCheck,
+		quit:        quit,
+		rateLimit:   rateLimit,
+		sleep:       sleep,
+		postQueue:   p.postQueue.msgs,
+		toRepost:    toRepost,
+		repostQueue: p.repostQueue.msgs,
+		toWrite:     toWrite,
+		checkQueue:  c.checkQueue.msgs,
 	}
 
 	for i := range q.workers {
