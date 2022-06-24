@@ -328,7 +328,10 @@ func NewWorkerPool(cfg *config.ServerConfig, db storage.Repo, logger *config.Log
 		logger:    config.NewLogger(&subLogger),
 	}
 
-	q.setUpAccrual(cfg.Accrual) // с настройкой не проходит тесты
+	if cfg.SetupAccrual {
+		q.setUpAccrual(cfg.Accrual)
+	}
+
 	chs := wChans{
 		quit:      quit,
 		rateLimit: rateLimit,
