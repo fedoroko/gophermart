@@ -79,7 +79,7 @@ func NewRabbitQueue(cfg *config.ServerConfig, name string, outputCh chan orders.
 		return nil, err
 	}
 
-	q, err := ch.QueueDeclare(
+	q, _ := ch.QueueDeclare(
 		name,
 		false,
 		false,

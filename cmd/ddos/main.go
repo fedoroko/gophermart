@@ -54,7 +54,7 @@ func main() {
 	}
 	reg.Header.Set("Content-type", "application/json")
 
-	l, err := client.Do(reg)
+	l, _ := client.Do(reg)
 	l.Body.Close()
 
 	token := l.Header.Get("Authorization")
@@ -84,5 +84,7 @@ func main() {
 		if resp.StatusCode != http.StatusAccepted {
 			fmt.Println(resp.StatusCode)
 		}
+
+		resp.Body.Close()
 	}
 }
