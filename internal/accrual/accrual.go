@@ -228,7 +228,7 @@ func (c *checker) flush() error {
 	defer cancel()
 
 	err := c.db.OrdersUpdate(ctx, c.pool)
-	if err == nil {
+	if err != nil {
 		c.logger.Error().Caller().Stack().Err(err).Msg("err on bd writing")
 		for i := 0; i < 3; i++ {
 			c.logger.Warn().Msg("Can't connect to bd. Sleep 30s")
