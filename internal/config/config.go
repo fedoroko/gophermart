@@ -24,7 +24,8 @@ type ServerConfig struct {
 	Debug        bool
 	InstanceID   int    `env:"INSTANCE_ID"`
 	RabbitMQ     string `env:"RABBITMQ_URI"`
-	WorkersCount int    `env:"WORKERS_COUNT"`
+	SetupAccrual bool
+	WorkersCount int `env:"WORKERS_COUNT"`
 }
 
 func (s *ServerConfig) Flags() *ServerConfig {
@@ -34,6 +35,7 @@ func (s *ServerConfig) Flags() *ServerConfig {
 	flag.BoolVar(&s.DBRefresh, "dbr", s.DBRefresh, "Refresh database")
 	flag.BoolVar(&s.Debug, "debug", s.Debug, "Debug mode")
 	flag.StringVar(&s.RabbitMQ, "mq", s.RabbitMQ, "Rabbitmq DSN")
+	flag.BoolVar(&s.SetupAccrual, "sa", s.Debug, "Set up accrual")
 	flag.IntVar(&s.WorkersCount, "w", s.WorkersCount, "Num of workers")
 	flag.Parse()
 
@@ -55,8 +57,9 @@ func NewServerConfig() *ServerConfig {
 		Accrual:      "127.0.0.1:8080",
 		Database:     "postgresql://fedoroko@localhost/gophermart",
 		DBRefresh:    false,
-		Debug:        true,
+		Debug:        false,
 		InstanceID:   1,
+		SetupAccrual: false,
 		WorkersCount: 2,
 	}
 }

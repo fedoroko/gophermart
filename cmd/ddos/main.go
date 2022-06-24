@@ -60,7 +60,7 @@ func main() {
 	token := l.Header.Get("Authorization")
 	fmt.Println(token, l.StatusCode)
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		number := generate()
 		_, ok := m[number]
 		if ok {
@@ -80,6 +80,9 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-		fmt.Println(resp.StatusCode)
+
+		if resp.StatusCode != http.StatusAccepted {
+			fmt.Println(resp.StatusCode)
+		}
 	}
 }

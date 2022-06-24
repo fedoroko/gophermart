@@ -49,7 +49,7 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_healthy
-    command: sh -c "./gophermart -dbr"
+    command: sh -c "./gophermart -dbr -sa -debug"
     healthcheck:
       test: [ "CMD-SHELL", "curl", "-f", "http://localhost:8000/ping" ]
       interval: 1s

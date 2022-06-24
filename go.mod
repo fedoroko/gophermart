@@ -8,6 +8,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/jackc/pgx/v4 v4.16.1
 	github.com/rs/zerolog v1.27.0
+	github.com/streadway/amqp v1.0.0
 	github.com/stretchr/testify v1.7.2
 	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e
 )
@@ -35,7 +36,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.0.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/streadway/amqp v1.0.0 // indirect
 	github.com/ugorji/go/codec v1.2.7 // indirect
 	golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2 // indirect
 	golang.org/x/sys v0.0.0-20210927094055-39ccf1dd6fa6 // indirect

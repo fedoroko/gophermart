@@ -26,7 +26,7 @@ type Repo interface {
 	SessionKill(context.Context, *users.Session) error
 
 	OrderCreate(context.Context, *orders.Order) error
-	OrdersUpdate(context.Context, []*orders.Order) error
+	OrdersUpdate(context.Context, []orders.QueueOrder) error
 	OrdersRestore(context.Context) ([]*orders.Order, error)
 	WithdrawalCreate(context.Context, *withdrawals.Withdrawal) error
 
@@ -319,7 +319,7 @@ func (p *postgres) OrderCreate(ctx context.Context, order *orders.Order) error {
 	return nil
 }
 
-func (p *postgres) OrdersUpdate(ctx context.Context, ors []*orders.Order) error {
+func (p *postgres) OrdersUpdate(ctx context.Context, ors []orders.QueueOrder) error {
 	tx, err := p.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -332,7 +332,7 @@ func (p *postgres) OrdersUpdate(ctx context.Context, ors []*orders.Order) error 
 	p.logger.Debug().Msg("orders_update transaction prepared")
 
 	for _, o := range ors {
-		if _, err = stmt.ExecContext(ctx, o.Status, o.Accrual); err != nil {
+		if _, err = stmt.ExecContext(ctx, o.Number, o.Status, o.Accrual); err != nil {
 			if rollErr := tx.Rollback(); rollErr != nil {
 				p.logger.Error().Stack().Err(rollErr).Send()
 			}

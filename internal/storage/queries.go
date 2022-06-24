@@ -88,7 +88,8 @@ const (
 							VALUES ($1, $2, $3, $4, $5)
 			;`
 
-	ordersUpdateQuery = `	UPDATE orders SET status = $1, accrual = $2;`
+	ordersUpdateQuery = `	UPDATE orders SET status = $2, accrual = $3
+							WHERE number = $1`
 
 	ordersRestoreQuery = ` 	SELECT number, status, uploaded_at FROM orders
 							WHERE status < 3

@@ -25,16 +25,16 @@ type Controller interface {
 }
 
 type controller struct {
-	r      storage.Repo
-	q      accrual.Queue
+	repo   storage.Repo
+	queue  accrual.WorkerPool
 	logger *config.Logger
 }
 
-func Ctrl(r storage.Repo, q accrual.Queue, logger *config.Logger) Controller {
+func Ctrl(r storage.Repo, q accrual.WorkerPool, logger *config.Logger) Controller {
 	subLogger := logger.With().Str("Component", "Controller").Logger()
 	return &controller{
-		r:      r,
-		q:      q,
+		repo:   r,
+		queue:  q,
 		logger: config.NewLogger(&subLogger),
 	}
 }
@@ -46,7 +46,7 @@ func (c *controller) Login(ctx context.Context, body io.Reader) (string, error) 
 		return "", err
 	}
 
-	session, err := c.r.UserExists(ctx, user)
+	session, err := c.repo.UserExists(ctx, user)
 	if err != nil {
 		c.logger.Debug().Caller().Err(err).Msg("db conflict")
 		return "", err
@@ -62,7 +62,7 @@ func (c *controller) Register(ctx context.Context, body io.Reader) (string, erro
 		return "", err
 	}
 
-	session, err := c.r.UserCreate(ctx, user)
+	session, err := c.repo.UserCreate(ctx, user)
 	if err != nil {
 		c.logger.Debug().Caller().Err(err).Msg("db conflict")
 		return "", err
@@ -81,13 +81,13 @@ func (c *controller) Order(ctx context.Context, u *users.User, body io.Reader) e
 		c.logger.Debug().Caller().Err(err).Msg("failed to parse order")
 		return err
 	}
-	err = c.r.OrderCreate(ctx, o)
+	err = c.repo.OrderCreate(ctx, o)
 	if err != nil {
 		c.logger.Debug().Caller().Err(err).Msg("db conflict")
 		return err
 	}
 
-	if err = c.q.Push(o); err != nil {
+	if err = c.queue.Push(o); err != nil {
 		c.logger.Debug().Caller().Err(err).Msg("failed to enqueue")
 		return err
 	}
@@ -96,7 +96,7 @@ func (c *controller) Order(ctx context.Context, u *users.User, body io.Reader) e
 }
 
 func (c *controller) Orders(ctx context.Context, u *users.User) ([]*orders.Order, error) {
-	ors, err := c.r.UserOrders(ctx, u)
+	ors, err := c.repo.UserOrders(ctx, u)
 	if err != nil {
 		c.logger.Debug().Caller().Err(err).Msg("db conflict")
 		return nil, err
@@ -112,7 +112,7 @@ func (c *controller) Withdraw(ctx context.Context, u *users.User, body io.Reader
 		return err
 	}
 
-	err = c.r.WithdrawalCreate(ctx, w)
+	err = c.repo.WithdrawalCreate(ctx, w)
 	if err != nil {
 		c.logger.Debug().Caller().Err(err).Msg("db conflict")
 		return err
@@ -122,7 +122,7 @@ func (c *controller) Withdraw(ctx context.Context, u *users.User, body io.Reader
 }
 
 func (c *controller) Withdrawals(ctx context.Context, u *users.User) ([]*withdrawals.Withdrawal, error) {
-	ws, err := c.r.UserWithdrawals(ctx, u)
+	ws, err := c.repo.UserWithdrawals(ctx, u)
 	if err != nil {
 		c.logger.Debug().Caller().Err(err).Msg("db conflict")
 		return nil, err

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,14 +18,13 @@ import (
 )
 
 type wChans struct {
-	quit        <-chan struct{}
-	rateLimit   chan<- struct{}      // канал для отправки сигнала о превышении лимита запросов
-	sleep       <-chan struct{}      // канал для получения сигнала о начале режима ожидания
-	postQueue   <-chan amqp.Delivery // канал с ордерами для отправки
-	repostQueue <-chan amqp.Delivery // канал возвращения неудачных ордеров в очередь
-	toRepost    chan<- *orders.Order
-	toWrite     chan<- *orders.Order // канал для передачи ордера для записи
-	checkQueue  <-chan amqp.Delivery
+	quit       <-chan struct{}
+	rateLimit  chan<- time.Duration     // канал для отправки сигнала о превышении лимита запросов
+	sleep      <-chan time.Duration     // канал для получения сигнала о начале режима ожидания
+	postQueue  <-chan amqp.Delivery     // очередь с ордерами для отправки
+	toRepost   chan<- orders.QueueOrder // канал для
+	toWrite    chan<- orders.QueueOrder // канал для передачи ордера для записи
+	checkQueue <-chan amqp.Delivery
 }
 
 type worker struct {
@@ -42,18 +42,15 @@ func (w *worker) run(wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		select {
-		case o := <-w.chs.repostQueue:
-			w.logger.Debug().Msg(fmt.Sprintf("worker %d: got a repost", w.id))
-			w.post(o)
-		case o := <-w.chs.postQueue:
+		case order := <-w.chs.postQueue:
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: got a post", w.id))
-			w.post(o)
-		case o := <-w.chs.checkQueue:
+			w.post(order)
+		case order := <-w.chs.checkQueue:
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: got a check", w.id))
-			w.check(o)
-		case <-w.chs.sleep:
+			w.check(order)
+		case timeout := <-w.chs.sleep:
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: is sleeping", w.id))
-			time.Sleep(time.Second * 30)
+			time.Sleep(time.Second * timeout)
 		case <-w.chs.quit:
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: closed", w.id))
 			return
@@ -63,74 +60,83 @@ func (w *worker) run(wg *sync.WaitGroup) {
 
 // post обработка заказа на отправку
 func (w *worker) post(data amqp.Delivery) {
-	w.logger.Debug().Msg(fmt.Sprintf("worker %d: post func", w.id))
-
-	var o *orders.Order
-	err := json.Unmarshal(data.Body, &o)
+	var order orders.QueueOrder
+	err := json.Unmarshal(data.Body, &order)
 	if err != nil {
 		w.logger.Error().Caller().Err(err).Send()
 		return
 	}
 
-	if err = w.postRequest(o); err != nil {
+	if timeout, err := w.postRequest(order); err != nil {
 		w.logger.Debug().Interface("err", err).Msg(fmt.Sprintf("worker %d: post func err", w.id))
 		if errors.As(err, &TooManyRequestsError) {
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: too many request, sleep for 30s", w.id))
-			w.chs.rateLimit <- struct{}{} // если получили 429 отправляет сигнал в queue
-			w.chs.toRepost <- o           // отправляет заказ обратно в очередь
-			time.Sleep(time.Second * 30)  // и засыпает (время опционально, для примера указал 30 сек)
+			w.chs.rateLimit <- timeout // если получили 429 отправляет сигнал в queue
+			w.chs.toRepost <- order    // отправляет заказ обратно в очередь
 		}
 		return
 	}
-	w.chs.toWrite <- o // после успесшной отправки заказа отдаем его под запись
+	order.Status = 2
+	w.chs.toWrite <- order // после успесшной отправки заказа отдаем его под запись
 
 	w.logger.Debug().Msg(fmt.Sprintf("worker %d: post done", w.id))
 }
 
-func (w *worker) postRequest(o *orders.Order) error {
+func getTimeout(str string) (time.Duration, error) {
+	timeoutInt, err := strconv.ParseInt(str, 10, 64)
+	if err != nil {
+		return 60, err
+	}
+
+	return time.Duration(timeoutInt), nil
+}
+
+func (w *worker) postRequest(order orders.QueueOrder) (time.Duration, error) {
 	s := fmt.Sprintf(
-		`{ "order": "%d", "goods": [ { "description": "LG product", "price": 50000.0 } ] }`, o.Number,
+		`{ "order": "%d", "goods": [ { "description": "LG product", "price": 50000.0 } ] }`, order.Number,
 	)
 
 	reqBody := strings.NewReader(s)
 	postAddress := fmt.Sprintf("%s/api/orders", w.address)
-	w.logger.Debug().Msg(fmt.Sprintf("worker %d: posting %d", w.id, o.Number))
+	w.logger.Debug().Msg(fmt.Sprintf("worker %d: posting %d", w.id, order.Number))
 	req, err := http.Post(postAddress, "application/json", reqBody)
-	w.logger.Debug().Interface("err", err).Int("code", req.StatusCode).Send()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	defer req.Body.Close()
 
 	switch {
 	case req.StatusCode == http.StatusTooManyRequests:
-		return ThrowTooManyRequestsErr()
+		timeoutStr := req.Header.Get("Retry-After")
+		timeout, err := getTimeout(timeoutStr)
+		if err != nil {
+			w.logger.Error().Caller().Err(err).Msg("can't parse timeout value")
+		}
+		return timeout, ThrowTooManyRequestsErr()
 	case req.StatusCode == http.StatusInternalServerError:
-		return errors.New("500")
+		return 0, errors.New("500")
 	default:
-		o.Status = 2 // тут были непонятки со статусами, но, судя по всему, любой кроме 429 и 500 нас устраивают
-		return nil
+		return 0, nil
 	}
 }
 
 func (w *worker) check(data amqp.Delivery) {
-	var o *orders.Order
-	if err := json.Unmarshal(data.Body, &o); err != nil {
+	var order orders.QueueOrder
+	if err := json.Unmarshal(data.Body, &order); err != nil {
 		w.logger.Error().Caller().Err(err).Send()
 		return
 	}
 
-	if err := w.checkRequest(o); err != nil {
+	if timeout, err := w.checkRequest(&order); err != nil {
 		if errors.As(err, &TooManyRequestsError) {
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: too many request, sleep for 30s", w.id))
-			w.chs.rateLimit <- struct{}{}
-			w.chs.toWrite <- o
-			time.Sleep(time.Second * 30)
+			w.chs.rateLimit <- timeout
+			w.chs.toWrite <- order
 		}
 		return
 	}
-	w.chs.toWrite <- o
+	w.chs.toWrite <- order
 
 	w.logger.Debug().Msg(fmt.Sprintf("worker %d: check done", w.id))
 }
@@ -151,35 +157,39 @@ func statusEncode(status string) int {
 	return table[status]
 }
 
-func (w *worker) checkRequest(o *orders.Order) error {
-	getAddress := fmt.Sprintf("%s/api/orders/%d", w.address, o.Number)
+func (w *worker) checkRequest(order *orders.QueueOrder) (time.Duration, error) {
+	getAddress := fmt.Sprintf("%s/api/orders/%d", w.address, order.Number)
 
 	req, err := http.Get(getAddress)
-	w.logger.Debug().Interface("err", err).Int("code", req.StatusCode).Send()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	w.logger.Debug().Msg(fmt.Sprintf("check status code: %d", req.StatusCode))
 	defer req.Body.Close()
+
 	switch {
 	case req.StatusCode == http.StatusTooManyRequests:
-		return ThrowTooManyRequestsErr()
+		timeoutStr := req.Header.Get("Retry-After")
+		timeout, err := getTimeout(timeoutStr)
+		if err != nil {
+			w.logger.Error().Caller().Err(err).Msg("can't parse timeout value")
+		}
+		return timeout, ThrowTooManyRequestsErr()
 	default:
 		resBody, err := ioutil.ReadAll(req.Body)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		data := checkJSON{}
 		if err = json.Unmarshal(resBody, &data); err != nil {
-			return err
+			return 0, err
 		}
 
-		o.Status = statusEncode(data.Status)
-		o.Accrual = data.Accrual
-
-		return nil
+		order.Status = statusEncode(data.Status)
+		order.Accrual = data.Accrual
+		return 0, nil
 	}
 }
 

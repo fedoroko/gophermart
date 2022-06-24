@@ -44,7 +44,7 @@ var NoRecordsError *noRecordsErr
 type noRecordsErr struct{}
 
 func (e *noRecordsErr) Error() string {
-	return "not enough balance"
+	return "no records"
 }
 
 func ThrowNoRecordsErr() *noRecordsErr {

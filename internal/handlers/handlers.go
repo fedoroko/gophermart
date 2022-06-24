@@ -23,8 +23,8 @@ type handler struct {
 	timeout time.Duration
 }
 
-func Handler(r storage.Repo, q accrual.Queue, logger *config.Logger, timeout time.Duration) *handler {
-	ctrl := controllers.Ctrl(r, q, logger)
+func Handler(r storage.Repo, wp accrual.WorkerPool, logger *config.Logger, timeout time.Duration) *handler {
+	ctrl := controllers.Ctrl(r, wp, logger)
 	subLogger := logger.With().Str("Component", "Handler").Logger()
 	return &handler{
 		ctrl:    ctrl,

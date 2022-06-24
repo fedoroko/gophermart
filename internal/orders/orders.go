@@ -65,3 +65,25 @@ func statusDecode(status int) string {
 
 	return table[status]
 }
+
+type QueueOrder struct {
+	Number  int64    `json:"number"`
+	Status  int      `json:"status"`
+	Accrual *float64 `json:"accrual,omitempty"`
+}
+
+func (o *Order) ToQueue() QueueOrder {
+	return QueueOrder{
+		Number:  o.Number,
+		Status:  o.Status,
+		Accrual: o.Accrual,
+	}
+}
+
+func (q *QueueOrder) ToOrder() *Order {
+	return &Order{
+		Number:  q.Number,
+		Status:  q.Status,
+		Accrual: q.Accrual,
+	}
+}

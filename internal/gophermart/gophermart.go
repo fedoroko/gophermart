@@ -24,15 +24,15 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	}
 	defer db.Close()
 
-	q := accrual.NewQueue(cfg, db, logger)
-	defer q.Close()
+	wp := accrual.NewWorkerPool(cfg, db, logger)
+	defer wp.Close()
 	go func() {
-		if err = q.Listen(); err != nil {
+		if err = wp.Listen(); err != nil {
 			logger.Error().Caller().Stack().Err(err).Send()
 		}
 	}()
 
-	r := router(db, q, logger)
+	r := router(db, wp, logger)
 	server := &http.Server{
 		Addr:    cfg.Address,
 		Handler: r,
@@ -64,7 +64,7 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 	logger.Warn().Msg("server shutdown 5s timeout")
 }
 
-func router(db storage.Repo, q accrual.Queue, logger *config.Logger) *gin.Engine {
+func router(db storage.Repo, wp accrual.WorkerPool, logger *config.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
@@ -72,7 +72,7 @@ func router(db storage.Repo, q accrual.Queue, logger *config.Logger) *gin.Engine
 	r.Use(middlewares.RateLimit())
 	r.Use(middlewares.StatCollector())
 
-	h := handlers.Handler(db, q, logger, time.Second*30)
+	h := handlers.Handler(db, wp, logger, time.Second*30)
 	authBasic := middlewares.AuthBasic(db, logger)
 	authWithBalance := middlewares.AuthWithBalance(db, logger)
 
