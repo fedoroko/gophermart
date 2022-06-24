@@ -1,0 +1,67 @@
+version: "3.9"
+services:
+  db:
+    container_name: "gophermart_postgres"
+    image: postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432"
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+  accrual:
+    build: ./cmd/accrual
+    ports:
+      - "8080"
+  rabbitmq:
+    image: rabbitmq
+    container_name: "gophermart_rabbitmq"
+    ports:
+      - "5672"
+    volumes:
+      - ./rabbitmq/data:/var/lib/rabbitmq
+      - ./rabbitmq/log/:/var/log/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 10s
+      retries: 3
+  server:
+    build: .
+    environment:
+      - RUN_ADDRESS=:8000
+      - ACCRUAL_SYSTEM_ADDRESS=http://accrual:8080
+      - DATABASE_URI=postgresql://postgres:postgres@db:5432
+      - RABBITMQ_URI=amqp://guest:guest@rabbitmq:5672
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      accrual:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    command: sh -c "./gophermart -dbr -sa -debug"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl", "-f", "http://localhost:8000/ping" ]
+      interval: 1s
+      timeout: 1s
+      retries: 5
+#  client:
+#    build: cmd/client
+#    ports:
+#      - "8080:8080"
+#    environment:
+#      - SERVER_ADDRESS=http://server:8000
+#    depends_on:
+#      server:
+#        condition: service_healthy
+#    command: sh -c "./client"
