@@ -11,20 +11,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/streadway/amqp"
-
 	"github.com/fedoroko/gophermart/internal/config"
 	"github.com/fedoroko/gophermart/internal/orders"
 )
 
 type wChans struct {
-	quit       <-chan struct{}
-	rateLimit  chan<- time.Duration     // канал для отправки сигнала о превышении лимита запросов
-	sleep      <-chan time.Duration     // канал для получения сигнала о начале режима ожидания
-	postQueue  <-chan amqp.Delivery     // очередь с ордерами для отправки
-	toRepost   chan<- orders.QueueOrder // канал для
-	toWrite    chan<- orders.QueueOrder // канал для передачи ордера для записи
-	checkQueue <-chan amqp.Delivery
+	quit      <-chan struct{}
+	rateLimit chan<- time.Duration     // канал для отправки сигнала о превышении лимита запросов
+	sleep     <-chan time.Duration     // канал для получения сигнала о начале режима ожидания
+	toPost    <-chan orders.QueueOrder // очередь с ордерами для отправки
+	toRepost  chan<- orders.QueueOrder // канал для
+	toWrite   chan<- orders.QueueOrder // канал для передачи ордера для записи
+	toCheck   <-chan orders.QueueOrder
 }
 
 type worker struct {
@@ -42,10 +40,10 @@ func (w *worker) run(wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		select {
-		case order := <-w.chs.postQueue:
+		case order := <-w.chs.toPost:
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: got a post", w.id))
 			w.post(order)
-		case order := <-w.chs.checkQueue:
+		case order := <-w.chs.toCheck:
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: got a check", w.id))
 			w.check(order)
 		case timeout := <-w.chs.sleep:
@@ -58,15 +56,10 @@ func (w *worker) run(wg *sync.WaitGroup) {
 	}
 }
 
-// post обработка заказа на отправку
-func (w *worker) post(data amqp.Delivery) {
-	var order orders.QueueOrder
-	err := json.Unmarshal(data.Body, &order)
-	if err != nil {
-		w.logger.Error().Caller().Err(err).Send()
-		return
-	}
+var postCount int64 = 0
 
+// post обработка заказа на отправку
+func (w *worker) post(order orders.QueueOrder) {
 	if timeout, err := w.postRequest(order); err != nil {
 		w.logger.Debug().Interface("err", err).Msg(fmt.Sprintf("worker %d: post func err", w.id))
 		if errors.As(err, &TooManyRequestsError) {
@@ -77,6 +70,7 @@ func (w *worker) post(data amqp.Delivery) {
 		return
 	}
 	order.Status = 2
+	postCount += 1
 	w.chs.toWrite <- order // после успесшной отправки заказа отдаем его под запись
 
 	w.logger.Debug().Msg(fmt.Sprintf("worker %d: post done", w.id))
@@ -121,13 +115,9 @@ func (w *worker) postRequest(order orders.QueueOrder) (time.Duration, error) {
 	}
 }
 
-func (w *worker) check(data amqp.Delivery) {
-	var order orders.QueueOrder
-	if err := json.Unmarshal(data.Body, &order); err != nil {
-		w.logger.Error().Caller().Err(err).Send()
-		return
-	}
+var checkCount int64 = 0
 
+func (w *worker) check(order orders.QueueOrder) {
 	if timeout, err := w.checkRequest(&order); err != nil {
 		if errors.As(err, &TooManyRequestsError) {
 			w.logger.Debug().Msg(fmt.Sprintf("worker %d: too many request, sleep for 30s", w.id))
@@ -136,6 +126,7 @@ func (w *worker) check(data amqp.Delivery) {
 		}
 		return
 	}
+	checkCount += 1
 	w.chs.toWrite <- order
 
 	w.logger.Debug().Msg(fmt.Sprintf("worker %d: check done", w.id))
@@ -148,7 +139,7 @@ type checkJSON struct {
 
 func statusEncode(status string) int {
 	table := map[string]int{
-		"REGISTERED": 1,
+		"REGISTERED": 2,
 		"PROCESSING": 2,
 		"PROCESSED":  3,
 		"INVALID":    4,

@@ -336,7 +336,7 @@ func Test_handler_OrderFunc(t *testing.T) {
 
 	db := mocks.NewMockRepo(ctrl)
 	l := config.NewLogger(&zerolog.Logger{})
-	q := mocks.NewMockQueue(ctrl)
+	q := mocks.NewMockWorkerPool(ctrl)
 	h := Handler(db, q, l, time.Second*30)
 	r := SetUpRouter()
 	r.Use(middlewares.AuthBasic(db, l))
@@ -432,7 +432,7 @@ func Test_handler_OrdersFunc(t *testing.T) {
 
 	db := mocks.NewMockRepo(ctrl)
 	l := config.NewLogger(&zerolog.Logger{})
-	q := mocks.NewMockQueue(ctrl)
+	q := mocks.NewMockWorkerPool(ctrl)
 	h := Handler(db, q, l, time.Second*30)
 	r := SetUpRouter()
 	r.Use(middlewares.AuthBasic(db, l))
@@ -693,7 +693,7 @@ func Test_handler_WithdrawFunc(t *testing.T) {
 
 	db := mocks.NewMockRepo(ctrl)
 	l := config.NewLogger(&zerolog.Logger{})
-	q := mocks.NewMockQueue(ctrl)
+	q := mocks.NewMockWorkerPool(ctrl)
 	h := Handler(db, q, l, time.Second*30)
 	r := SetUpRouter()
 	r.Use(middlewares.AuthBasic(db, l))

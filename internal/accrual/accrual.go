@@ -27,7 +27,7 @@ func ThrowTooManyRequestsErr() *tooManyRequestsErr {
 	return &tooManyRequestsErr{}
 }
 
-//go:generate mockgen -destination=../mocks/mock_doer_queue.go -package=mocks github.com/fedoroko/gophermart/internal/accrual Queue
+//go:generate mockgen -destination=../mocks/mock_doer_workerpool.go -package=mocks github.com/fedoroko/gophermart/internal/accrual WorkerPool
 type WorkerPool interface {
 	Push(*orders.Order) error
 	Listen() error
@@ -130,25 +130,27 @@ func (p *workerPool) restore() error {
 // воркер отправляет заказ обратно постеру, где он снова возвращается в очередь,
 // но с повышенным приоритетом
 type poster struct {
-	quit      <-chan struct{}
-	postQueue rabbitQueue
-	toRepost  <-chan orders.QueueOrder
-	logger    *config.Logger
+	quit     <-chan struct{}
+	queue    Queue
+	toPost   chan<- orders.QueueOrder
+	toRepost <-chan orders.QueueOrder
+	logger   *config.Logger
 }
 
 func (p *poster) push(order orders.QueueOrder) {
-	if err := p.postQueue.publish(order); err != nil {
+	if err := p.queue.Push(order); err != nil {
 		p.logger.Error().Caller().Err(err).Send()
 	}
 }
 
 func (p *poster) listen() {
+	go p.queue.Consume()
 	for {
 		select {
 		case order := <-p.toRepost:
 			p.push(order)
 		case <-p.quit:
-			if err := p.postQueue.close(); err != nil {
+			if err := p.queue.Close(); err != nil {
 				p.logger.Error().Caller().Err(err).Send()
 			}
 			return
@@ -167,19 +169,19 @@ func (p *poster) listen() {
 // Размышляю над заменой слайса для пулла на мапу с ключом по айди, тогда,
 // в большинстве случаев, будет одна запись в бд вместо двух.
 type checker struct {
-	quit       <-chan struct{}
-	toWrite    <-chan orders.QueueOrder // канал ордерами под запись
-	checkQueue rabbitQueue
-	pool       []orders.QueueOrder // пулл заказов
-	db         storage.Repo
-	logger     *config.Logger
+	quit    <-chan struct{}
+	toWrite <-chan orders.QueueOrder // канал ордерами под запись
+	queue   Queue
+	pool    []orders.QueueOrder // пулл заказов
+	db      storage.Repo
+	logger  *config.Logger
 }
 
 // handleOrderStatus в зависимости от статуса перенаправляет заказ из toWrite
 // в checkQueue или просто записывает.
 func (c *checker) handleOrderStatus(o orders.QueueOrder) {
 	if o.Status == 2 {
-		if err := c.checkQueue.publish(o); err != nil {
+		if err := c.queue.Push(o); err != nil {
 			c.logger.Error().Caller().Err(err).Send()
 		}
 	}
@@ -198,6 +200,8 @@ func (c *checker) listen() error {
 	ticker := time.NewTicker(time.Second * 3)
 	defer ticker.Stop()
 
+	go c.queue.Consume()
+
 	for {
 		select {
 		case o := <-c.toWrite:
@@ -206,7 +210,7 @@ func (c *checker) listen() error {
 			c.flush()
 		case <-c.quit:
 			c.flush()
-			if err := c.checkQueue.close(); err != nil {
+			if err := c.queue.Close(); err != nil {
 				c.logger.Error().Caller().Err(err).Send()
 			}
 			return nil
@@ -216,58 +220,84 @@ func (c *checker) listen() error {
 
 // flush записывает ордера из pool в базу.
 func (c *checker) flush() error {
-	if len(c.pool) > 0 {
-		c.logger.Debug().Msg("writing pool")
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
+	if len(c.pool) == 0 {
+		return nil
+	}
+	c.logger.Debug().Msg("writing pool")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
 
-		err := c.db.OrdersUpdate(ctx, c.pool)
-		if err != nil {
-			c.logger.Error().Caller().Stack().Err(err).Msg("err on bd writing")
-			return err
+	err := c.db.OrdersUpdate(ctx, c.pool)
+	if err == nil {
+		c.logger.Error().Caller().Stack().Err(err).Msg("err on bd writing")
+		for i := 0; i < 3; i++ {
+			c.logger.Warn().Msg("Can't connect to bd. Sleep 30s")
+			time.Sleep(time.Second * 30)
+			err = c.db.OrdersUpdate(context.Background(), c.pool)
+			if err == nil {
+				break
+			}
 		}
 
-		c.logger.Debug().Msg("writing success")
-		c.pool = c.pool[:0]
+		return err
 	}
+
+	c.logger.Debug().Msg("writing success")
+	c.pool = c.pool[:0]
+
 	return nil
 }
 
 func newPoster(
-	quit <-chan struct{}, toRepost chan orders.QueueOrder, cfg *config.ServerConfig, logger *config.Logger) (*poster, error) {
+	quit <-chan struct{}, toPost chan orders.QueueOrder, toRepost chan orders.QueueOrder,
+	cfg *config.ServerConfig, logger *config.Logger) (*poster, error) {
 	subLogger := logger.With().Str("Component", "Poster").Logger()
 
-	postQueue, err := newRabbitQueue(cfg, "post")
-	if err != nil {
-		subLogger.Error().Caller().Err(err).Send()
-		return nil, err
+	var postQueue Queue
+	if cfg.RabbitMQ != "" {
+		pq, err := NewRabbitQueue(cfg, "post", toPost)
+		if err != nil {
+			subLogger.Error().Caller().Err(err).Send()
+			return nil, err
+		}
+		postQueue = pq
+	} else {
+		postQueue = NewQueue(toPost)
 	}
 
 	return &poster{
-		quit:      quit,
-		postQueue: *postQueue,
-		toRepost:  toRepost,
-		logger:    config.NewLogger(&subLogger),
-	}, err
+		quit:     quit,
+		queue:    postQueue,
+		toPost:   toPost,
+		toRepost: toRepost,
+		logger:   config.NewLogger(&subLogger),
+	}, nil
 }
 
 func newChecker(
-	quit <-chan struct{}, toWrite <-chan orders.QueueOrder, cfg *config.ServerConfig,
+	quit <-chan struct{}, toWrite chan orders.QueueOrder, toCheck chan orders.QueueOrder, cfg *config.ServerConfig,
 	db storage.Repo, logger *config.Logger) (*checker, error) {
 	subLogger := logger.With().Str("Component", "Checker").Logger()
 
-	checkQueue, err := newRabbitQueue(cfg, "check")
-	if err != nil {
-		subLogger.Error().Caller().Err(err).Send()
-		return nil, err
+	var checkQueue Queue
+	if cfg.RabbitMQ != "" {
+		cq, err := NewRabbitQueue(cfg, "check", toCheck)
+		if err != nil {
+			subLogger.Error().Caller().Err(err).Send()
+			return nil, err
+		}
+		checkQueue = cq
+	} else {
+		checkQueue = NewQueue(toCheck)
 	}
+
 	return &checker{
-		quit:       quit,
-		toWrite:    toWrite,
-		checkQueue: *checkQueue,
-		pool:       make([]orders.QueueOrder, 0, 1000),
-		db:         db,
-		logger:     config.NewLogger(&subLogger),
+		quit:    quit,
+		toWrite: toWrite,
+		queue:   checkQueue,
+		pool:    make([]orders.QueueOrder, 0, 1000),
+		db:      db,
+		logger:  config.NewLogger(&subLogger),
 	}, nil
 }
 
@@ -278,11 +308,15 @@ func NewWorkerPool(cfg *config.ServerConfig, db storage.Repo, logger *config.Log
 	rateLimit := make(chan time.Duration)
 	sleep := make(chan time.Duration)
 
+	toPost := make(chan orders.QueueOrder, 1000)
 	toRepost := make(chan orders.QueueOrder, 1000)
-	toWrite := make(chan orders.QueueOrder, 1000)
 
-	p, _ := newPoster(quit, toRepost, cfg, logger)
-	c, _ := newChecker(quit, toWrite, cfg, db, logger)
+	p, _ := newPoster(quit, toPost, toRepost, cfg, logger)
+
+	toWrite := make(chan orders.QueueOrder, 1000)
+	toCheck := make(chan orders.QueueOrder, 1000)
+
+	c, _ := newChecker(quit, toWrite, toCheck, cfg, db, logger)
 
 	q := &workerPool{
 		quit:      quit,
@@ -296,13 +330,13 @@ func NewWorkerPool(cfg *config.ServerConfig, db storage.Repo, logger *config.Log
 
 	q.setUpAccrual(cfg.Accrual) // с настройкой не проходит тесты
 	chs := wChans{
-		quit:       quit,
-		rateLimit:  rateLimit,
-		sleep:      sleep,
-		postQueue:  p.postQueue.msgs,
-		toRepost:   toRepost,
-		toWrite:    toWrite,
-		checkQueue: c.checkQueue.msgs,
+		quit:      quit,
+		rateLimit: rateLimit,
+		sleep:     sleep,
+		toPost:    toPost,
+		toRepost:  toRepost,
+		toWrite:   toWrite,
+		toCheck:   toCheck,
 	}
 
 	for i := range q.workers {

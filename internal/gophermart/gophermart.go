@@ -66,7 +66,7 @@ func Run(cfg *config.ServerConfig, logger *config.Logger) {
 
 func router(db storage.Repo, wp accrual.WorkerPool, logger *config.Logger) *gin.Engine {
 	r := gin.New()
-	r.Use(gin.Logger())
+	//r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middlewares.InstanceID(1))
 	r.Use(middlewares.RateLimit())

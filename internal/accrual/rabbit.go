@@ -2,7 +2,6 @@ package accrual
 
 import (
 	"encoding/json"
-
 	"github.com/streadway/amqp"
 
 	"github.com/fedoroko/gophermart/internal/config"
@@ -10,13 +9,13 @@ import (
 )
 
 type rabbitQueue struct {
-	conn *amqp.Connection
-	ch   *amqp.Channel        // нужны вместе с conn чтобы было что закрывать при завершении программы
-	q    amqp.Queue           // в принципе не нужен, но на всякий случай
-	msgs <-chan amqp.Delivery // канал с сообщениями из очереди
+	conn     *amqp.Connection
+	ch       *amqp.Channel // нужны вместе с conn чтобы было что закрывать при завершении программы
+	q        amqp.Queue    // в принципе не нужен, но на всякий случай
+	outputCh chan<- orders.QueueOrder
 }
 
-func (r *rabbitQueue) publish(o orders.QueueOrder) error {
+func (r *rabbitQueue) Push(o orders.QueueOrder) error {
 	data, err := json.Marshal(o)
 	if err != nil {
 		return err
@@ -28,12 +27,40 @@ func (r *rabbitQueue) publish(o orders.QueueOrder) error {
 		false,
 		false,
 		amqp.Publishing{
-			ContentType: "text/plain",
+			ContentType: "application/json",
 			Body:        data,
 		})
 }
 
-func (r *rabbitQueue) close() error {
+func (r *rabbitQueue) Consume() error {
+	msgs, err := r.ch.Consume(
+		r.q.Name,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	for raw := range msgs {
+		var order orders.QueueOrder
+		err = json.Unmarshal(raw.Body, &order)
+		if err != nil {
+
+			continue
+		}
+
+		r.outputCh <- order
+	}
+
+	return nil
+}
+
+func (r *rabbitQueue) Close() error {
 	if err := r.ch.Close(); err != nil {
 		return err
 	}
@@ -41,7 +68,7 @@ func (r *rabbitQueue) close() error {
 	return r.conn.Close()
 }
 
-func newRabbitQueue(cfg *config.ServerConfig, name string) (*rabbitQueue, error) {
+func NewRabbitQueue(cfg *config.ServerConfig, name string, outputCh chan orders.QueueOrder) (Queue, error) {
 	conn, err := amqp.Dial(cfg.RabbitMQ)
 	if err != nil {
 		return nil, err
@@ -61,20 +88,10 @@ func newRabbitQueue(cfg *config.ServerConfig, name string) (*rabbitQueue, error)
 		nil,
 	)
 
-	msgs, err := ch.Consume(
-		q.Name,
-		"",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-
 	return &rabbitQueue{
-		conn: conn,
-		ch:   ch,
-		q:    q,
-		msgs: msgs,
+		conn:     conn,
+		ch:       ch,
+		q:        q,
+		outputCh: outputCh,
 	}, nil
 }

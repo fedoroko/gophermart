@@ -60,7 +60,7 @@ func main() {
 	token := l.Header.Get("Authorization")
 	fmt.Println(token, l.StatusCode)
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 5000; i++ {
 		number := generate()
 		_, ok := m[number]
 		if ok {
